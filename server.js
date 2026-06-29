@@ -10,6 +10,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import { BrokerSession } from "./mcp.js";
+import { beginOAuth, completeOAuth } from "./oauth.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -104,10 +105,50 @@ app.get("/api/status", wrap(async (_req, res) => {
 
 // Start broker login. Returns { loginUrl } to open in a new tab.
 app.post("/api/:broker/connect", wrap(async (req, res) => {
-  const s = getSession(req.params.broker);
+  const broker = req.params.broker;
+  const s = getSession(broker);
   if (!s) return res.status(404).json({ error: "Unknown broker" });
-  const result = await s.beginLogin();
-  res.json({ ...result, tools: s.tools.map((t) => t.name) });
+
+  // Try the standard MCP login tool flow first.
+  // If the server is auth-gated (e.g. INDmoney), fall through to OAuth.
+  try {
+    const result = await s.beginLogin();
+    if (result.loginUrl || result.note) {
+      return res.json({ ...result, tools: s.tools.map((t) => t.name) });
+    }
+  } catch (e) {
+    if (!String(e?.message).includes("invalid_token") &&
+        !String(e?.message).includes("Authentication required") &&
+        !String(e?.message).includes("No login")) throw e;
+  }
+
+  // OAuth 2.0 + PKCE flow for auth-gated servers.
+  const callbackUrl = `${req.protocol}://${req.get("host")}/api/${broker}/callback`;
+  const { loginUrl } = await beginOAuth(s.url, callbackUrl);
+  s.loginUrl = loginUrl;
+  res.json({ loginUrl, tools: [] });
+}));
+
+// OAuth callback — INDmoney redirects here after the user logs in.
+app.get("/api/:broker/callback", wrap(async (req, res) => {
+  const broker = req.params.broker;
+  const s = sessions.get(broker);
+  if (!s) return res.status(404).send("Unknown broker");
+
+  const { code, state, error } = req.query;
+  if (error) return res.status(400).send(`OAuth error: ${error}`);
+  if (!code || !state) return res.status(400).send("Missing code or state");
+
+  const callbackUrl = `${req.protocol}://${req.get("host")}/api/${broker}/callback`;
+  const { tokens } = await completeOAuth(code, state, callbackUrl);
+  await s.setAuthToken(tokens.access_token);
+
+  // Close the popup and tell the user to go back to the dashboard.
+  res.send(`<html><body style="font-family:system-ui;text-align:center;padding:60px">
+    <h2 style="color:#0E9E86">Connected to ${BROKERS[broker]?.label || broker}!</h2>
+    <p>You can close this tab and click <strong>Load</strong> in the dashboard.</p>
+    <script>window.close();</script>
+  </body></html>`);
 }));
 
 // Pull holdings/portfolio. 401 + { loginUrl } if the broker still needs login.

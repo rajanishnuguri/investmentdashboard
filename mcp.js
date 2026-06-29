@@ -86,7 +86,10 @@ export class BrokerSession {
 
   async ensureClient() {
     if (this.client) return;
-    this.transport = new StreamableHTTPClientTransport(new URL(this.url));
+    const headers = this.accessToken
+      ? { Authorization: `Bearer ${this.accessToken}` }
+      : {};
+    this.transport = new StreamableHTTPClientTransport(new URL(this.url), { requestInit: { headers } });
     this.client = new Client(this.clientInfo, { capabilities: {} });
     await this.client.connect(this.transport);
     try {
@@ -97,6 +100,18 @@ export class BrokerSession {
       // Store the error and let beginLogin() handle it.
       this.listToolsError = String(e?.message || e);
     }
+  }
+
+  // Called after OAuth completes. Reconnects the MCP client with the bearer token.
+  async setAuthToken(accessToken) {
+    this.accessToken = accessToken;
+    // Close existing unauthenticated connection so ensureClient() reconnects.
+    try { await this.client?.close?.(); } catch { /* ignore */ }
+    this.client = null;
+    this.transport = null;
+    this.listToolsError = null;
+    await this.ensureClient();
+    this.authed = this.tools.length > 0;
   }
 
   // Kick off the broker login. Returns a URL the user must open to authenticate.
