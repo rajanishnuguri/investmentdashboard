@@ -377,7 +377,7 @@ function Holdings({allHoldings, refreshedAt, onRefresh, refreshing}){
     });
   },[allHoldings]);
 
-  const mfCount = allHoldings.filter(h=>h.assetType==="MF").length;
+  const liveCount = allHoldings.filter(h=>["MF","US_STOCK"].includes(h.assetType)||h.exchange==="NSE"||h.exchange==="BSE").length;
 
   return (
     <div className="space-y-4">
@@ -392,7 +392,7 @@ function Holdings({allHoldings, refreshedAt, onRefresh, refreshing}){
           className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2"
           style={{background:refreshing?C.panel2:C.go,color:refreshing?C.muted:C.btnText,fontSize:12.5,fontWeight:600,border:C.border}}>
           <Icon name="refresh" size={13} style={refreshing?{animation:"spin 1s linear infinite"}:null}/>
-          {refreshing?"Refreshing…":`Refresh NAV${mfCount>0?` (${mfCount} MF)`:""}`}
+          {refreshing?"Refreshing prices…":`Refresh prices${liveCount>0?` · ${liveCount} holdings`:""}`}
         </button>
       </div>
 

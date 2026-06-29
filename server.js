@@ -212,17 +212,84 @@ app.post("/api/:broker/tool", wrap(async (req, res) => {
   res.json(out);
 }));
 
-// ---- MF live NAV refresh via mfapi.in (free, no auth) ----
-// Maps investment_code → AMFI scheme code (in-memory, cleared on restart)
-const mfCodeMap = new Map();
-const mfNavCache = new Map(); // amfiCode → { nav, date }
+// ── Live price refresh — MF via mfapi.in, stocks via Yahoo Finance ──
 
+const mfCodeMap    = new Map(); // investmentCode → AMFI scheme code
+const mfNavCache   = new Map(); // amfiCode → { nav, date }
+const tickerMap    = new Map(); // symbol/name → yahoo ticker
+const priceCache   = new Map(); // ticker → { price, currency, ts }
+const PRICE_TTL_MS = 5 * 60 * 1000; // 5 min cache
+
+const YF_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+  "Accept": "application/json",
+};
+
+// Fetch a single quote from Yahoo Finance. Returns { price, currency } or null.
+async function yahooQuote(ticker) {
+  const cached = priceCache.get(ticker);
+  if (cached && Date.now() - cached.ts < PRICE_TTL_MS) return cached;
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+    const r = await fetch(url, { headers: YF_HEADERS });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const meta = d?.chart?.result?.[0]?.meta;
+    const price = meta?.regularMarketPrice ?? meta?.previousClose;
+    if (!price) return null;
+    const result = { price, currency: meta.currency || "USD", ts: Date.now() };
+    priceCache.set(ticker, result);
+    return result;
+  } catch { return null; }
+}
+
+// Search Yahoo Finance for a ticker symbol by name.
+// type hint: "US" for US equities/ETFs, "IN" for Indian equities
+async function findTicker(name, typeHint) {
+  const cacheKey = typeHint + "::" + name;
+  if (tickerMap.has(cacheKey)) return tickerMap.get(cacheKey);
+
+  try {
+    const q = encodeURIComponent(name.split(" ").slice(0, 5).join(" "));
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${q}&quotesCount=5&newsCount=0`;
+    const r = await fetch(url, { headers: YF_HEADERS });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const quotes = d?.quotes || [];
+
+    let hit = null;
+    if (typeHint === "IN") {
+      // Prefer .NS (NSE) symbols for Indian equities
+      hit = quotes.find(q => q.symbol?.endsWith(".NS") && ["EQUITY","ETF"].includes(q.quoteType))
+         || quotes.find(q => q.symbol?.endsWith(".BO") && ["EQUITY","ETF"].includes(q.quoteType));
+    } else {
+      // US: prefer symbols without exchange suffix (NYSE/NASDAQ listed)
+      hit = quotes.find(q => ["ETF","EQUITY","MUTUALFUND"].includes(q.quoteType) && !q.symbol?.includes("."))
+         || quotes.find(q => ["ETF","EQUITY"].includes(q.quoteType));
+    }
+
+    const ticker = hit?.symbol || null;
+    tickerMap.set(cacheKey, ticker);
+    return ticker;
+  } catch { return null; }
+}
+
+// USD → INR conversion rate (cached 5 min)
+let usdInrCache = null;
+async function getUsdInr() {
+  if (usdInrCache && Date.now() - usdInrCache.ts < PRICE_TTL_MS) return usdInrCache.rate;
+  const q = await yahooQuote("USDINR=X");
+  const rate = q?.price || 84;
+  usdInrCache = { rate, ts: Date.now() };
+  return rate;
+}
+
+// MF NAV via mfapi.in
 async function fetchMfNav(investmentCode, fundName) {
   const today = new Date().toDateString();
   let amfi = mfCodeMap.get(investmentCode);
 
   if (!amfi) {
-    // Try treating investment_code as the AMFI scheme code directly
     try {
       const r = await fetch(`https://api.mfapi.in/mf/${investmentCode}`);
       if (r.ok) {
@@ -233,7 +300,6 @@ async function fetchMfNav(investmentCode, fundName) {
   }
 
   if (!amfi && fundName) {
-    // Search by the first 5 words of the fund name
     try {
       const q = encodeURIComponent(fundName.split(" ").slice(0, 5).join(" "));
       const r = await fetch(`https://api.mfapi.in/mf/search?q=${q}`);
@@ -263,40 +329,82 @@ async function fetchMfNav(investmentCode, fundName) {
       }
     }
   } catch { /* ignore */ }
-
   return null;
 }
 
-// Refresh MF NAVs from mfapi.in without requiring broker re-authentication.
+function applyPriceUpdate(h, newUnitPriceInr) {
+  if (newUnitPriceInr == null || !h.quantity) return false;
+  h.unitPrice = newUnitPriceInr;
+  h.current = h.quantity * newUnitPriceInr;
+  const pnl = h.current - (h.invested || 0);
+  h.pnl = pnl;
+  h.absoluteReturn = pnl;
+  h.absoluteReturnPct = h.invested ? (pnl / h.invested) * 100 : null;
+  h.pnlPct = h.absoluteReturnPct;
+  return true;
+}
+
+// Refresh prices: MF from mfapi.in, US stocks/ETFs/REITs + Indian equities from Yahoo Finance.
 app.post("/api/prices/refresh", wrap(async (req, res) => {
   const cache = loadCache();
   let updated = 0;
 
+  // Fetch USD/INR once if we have any US holdings
+  const hasUs = Object.values(cache).some(b =>
+    (b.holdings || []).some(h => h.assetType === "US_STOCK")
+  );
+  const usdInr = hasUs ? await getUsdInr() : null;
+
   for (const brokerData of Object.values(cache)) {
     if (!Array.isArray(brokerData.holdings)) continue;
+
     for (const h of brokerData.holdings) {
-      if (h.assetType !== "MF" || !h.quantity) continue;
-      const nav = await fetchMfNav(h.investmentCode, h.symbol);
-      if (nav == null) continue;
-      h.unitPrice = nav;
-      h.current = h.quantity * nav;
-      const pnl = h.current - (h.invested || 0);
-      h.pnl = pnl;
-      h.absoluteReturn = pnl;
-      h.absoluteReturnPct = h.invested ? (pnl / h.invested) * 100 : null;
-      h.pnlPct = h.absoluteReturnPct;
-      updated++;
+      if (!h.quantity) continue;
+
+      if (h.assetType === "MF") {
+        const nav = await fetchMfNav(h.investmentCode, h.symbol);
+        if (applyPriceUpdate(h, nav)) updated++;
+
+      } else if (h.assetType === "US_STOCK") {
+        // Find ticker (ETFs like VOO, VT; REITs like O, AMT; stocks like AAPL)
+        let ticker = await findTicker(h.symbol, "US");
+        if (ticker) {
+          const q = await yahooQuote(ticker);
+          if (q) {
+            // Yahoo returns USD; convert to INR
+            const priceInr = q.price * (usdInr || 84);
+            if (applyPriceUpdate(h, priceInr)) updated++;
+          }
+        }
+
+      } else if (h.exchange === "NSE" || h.exchange === "BSE") {
+        // Indian equities from Kite — try NSE first
+        const suffix = h.exchange === "BSE" ? ".BO" : ".NS";
+        const ticker = h.symbol + suffix;
+        const q = await yahooQuote(ticker);
+        if (q) {
+          if (applyPriceUpdate(h, q.price)) updated++;
+        } else {
+          // fallback: search by name
+          const found = await findTicker(h.symbol, "IN");
+          if (found) {
+            const q2 = await yahooQuote(found);
+            if (q2 && applyPriceUpdate(h, q2.price)) updated++;
+          }
+        }
+      }
+      // EPF, PPF, NPS, BOND — no live price source, skip
     }
   }
 
+  const refreshedAt = new Date().toISOString();
   if (updated > 0) {
-    const refreshedAt = new Date().toISOString();
     for (const brokerData of Object.values(cache)) brokerData.savedAt = refreshedAt;
     fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
   }
 
   const allHoldings = Object.values(cache).flatMap(b => b.holdings || []);
-  res.json({ updated, refreshedAt: new Date().toISOString(), holdings: allHoldings });
+  res.json({ updated, refreshedAt, usdInr, holdings: allHoldings });
 }));
 
 app.post("/api/:broker/disconnect", wrap(async (req, res) => {

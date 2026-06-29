@@ -915,7 +915,7 @@ function Holdings({
       return sb - sa;
     });
   }, [allHoldings]);
-  const mfCount = allHoldings.filter(h => h.assetType === "MF").length;
+  const liveCount = allHoldings.filter(h => ["MF", "US_STOCK"].includes(h.assetType) || h.exchange === "NSE" || h.exchange === "BSE").length;
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-4"
   }, /*#__PURE__*/React.createElement("div", {
@@ -950,7 +950,7 @@ function Holdings({
     style: refreshing ? {
       animation: "spin 1s linear infinite"
     } : null
-  }), refreshing ? "Refreshing…" : `Refresh NAV${mfCount > 0 ? ` (${mfCount} MF)` : ""}`)), groups.map(g => /*#__PURE__*/React.createElement(HoldingGroup, {
+  }), refreshing ? "Refreshing prices…" : `Refresh prices${liveCount > 0 ? ` · ${liveCount} holdings` : ""}`)), groups.map(g => /*#__PURE__*/React.createElement(HoldingGroup, {
     key: g.key,
     group: g,
     holdings: g.holdings
