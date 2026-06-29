@@ -49,6 +49,22 @@ const BROKERS = {
 // you'd key these by a real user session instead of globally.)
 const sessions = new Map();
 
+// Persistence — last fetched portfolio is saved here so a page refresh still
+// shows data even if the MCP session has been disconnected.
+const CACHE_FILE = path.join(__dirname, ".portfolio-cache.json");
+
+function loadCache() {
+  try {
+    return JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
+  } catch { return {}; }
+}
+
+function saveCache(broker, data) {
+  const cache = loadCache();
+  cache[broker] = { ...data, savedAt: new Date().toISOString() };
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+}
+
 function getSession(key) {
   const cfg = BROKERS[key];
   if (!cfg) return null;
@@ -88,9 +104,11 @@ const wrap = (fn) => (req, res) =>
   });
 
 app.get("/api/status", wrap(async (_req, res) => {
+  const cache = loadCache();
   const out = {};
   for (const [key, cfg] of Object.entries(BROKERS)) {
     const s = sessions.get(key);
+    const cached = cache[key];
     out[key] = {
       label: cfg.label,
       url: cfg.url,
@@ -98,6 +116,9 @@ app.get("/api/status", wrap(async (_req, res) => {
       authed: !!s?.authed,
       tools: s?.tools?.map((t) => t.name) || [],
       loginUrl: s?.loginUrl || null,
+      // Include last-known holdings so the UI can restore state on refresh.
+      cachedHoldings: cached?.holdings || null,
+      cachedAt: cached?.savedAt || null,
     };
   }
   res.json({ brokers: out });
@@ -152,11 +173,24 @@ app.get("/api/:broker/callback", wrap(async (req, res) => {
 }));
 
 // Pull holdings/portfolio. 401 + { loginUrl } if the broker still needs login.
+// Falls back to the last cached snapshot if the session isn't connected.
 app.get("/api/:broker/portfolio", wrap(async (req, res) => {
-  const s = getSession(req.params.broker);
+  const broker = req.params.broker;
+  const s = getSession(broker);
   if (!s) return res.status(404).json({ error: "Unknown broker" });
-  const data = await s.fetchPortfolio();
-  res.json({ broker: req.params.broker, ...data });
+
+  try {
+    const data = await s.fetchPortfolio();
+    saveCache(broker, data);
+    res.json({ broker, ...data });
+  } catch (e) {
+    // If live fetch fails (e.g. session expired), try the cache.
+    const cached = loadCache()[broker];
+    if (cached && (e?.message === "LOGIN_REQUIRED" || !s.authed)) {
+      return res.json({ broker, ...cached, fromCache: true });
+    }
+    throw e;
+  }
 }));
 
 app.get("/api/:broker/tools", wrap(async (req, res) => {

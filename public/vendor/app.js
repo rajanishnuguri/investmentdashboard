@@ -282,7 +282,8 @@ function BrokerCard({
   onLoad
 }) {
   const dot = st?.authed ? C.go : st?.connected ? C.amber : C.muted;
-  const status = st?.error ? st.error : st?.loading ? "Working…" : st?.authed ? `Loaded · ${st.holdings?.length || 0} holdings` : st?.connected ? "Connected · finish login, then Load" : "Not connected";
+  const cacheLabel = st?.fromCache && st?.cachedAt ? ` · cached ${new Date(st.cachedAt).toLocaleDateString()}` : "";
+  const status = st?.error ? st.error : st?.loading ? "Working…" : st?.authed ? `Loaded · ${st.holdings?.length || 0} holdings` : st?.fromCache ? `${st.holdings?.length || 0} holdings (last session${cacheLabel})` : st?.connected ? "Connected · finish login, then Load" : "Not connected";
   return /*#__PURE__*/React.createElement(Panel, {
     className: "p-4"
   }, /*#__PURE__*/React.createElement("div", {
@@ -827,12 +828,20 @@ function App() {
   useEffect(() => {
     api.status().then(s => {
       const next = {};
-      for (const [k, info] of Object.entries(s.brokers || {})) next[k] = {
-        connected: info.connected,
-        authed: info.authed,
-        tools: info.tools,
-        loginUrl: info.loginUrl
-      };
+      for (const [k, info] of Object.entries(s.brokers || {})) {
+        next[k] = {
+          connected: info.connected,
+          authed: info.authed,
+          tools: info.tools,
+          loginUrl: info.loginUrl
+        };
+        // Restore last known holdings from server cache so the page isn't blank on refresh.
+        if (info.cachedHoldings?.length) {
+          next[k].holdings = info.cachedHoldings;
+          next[k].fromCache = true;
+          next[k].cachedAt = info.cachedAt;
+        }
+      }
       setBrokers(next);
     }).catch(() => {});
   }, []);
