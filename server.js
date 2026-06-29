@@ -48,12 +48,16 @@ app.use(express.json());
 app.use((_req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;"
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;"
   );
   next();
 });
 
 app.use(express.static(path.join(__dirname, "public")));
+// Also serve vendor files from the root-level public/vendor when index.html
+// lives next to server.js rather than inside public/.
+app.use("/vendor", express.static(path.join(__dirname, "public", "vendor")));
+app.use("/favicon.svg", express.static(path.join(__dirname, "public", "favicon.svg")));
 
 // Find the dashboard whether it's in public/ or sitting next to server.js,
 // so a flattened download still works.
