@@ -22,6 +22,19 @@ const HOLDING_HINTS = [
   "position", "mutual", "mf", "mf_holdings", "investment", "summary",
 ];
 
+// Expand a tool name into one or more {name, args, label} calls.
+// Some tools (e.g. INDmoney's networth_holdings) need a required argument.
+function toolCalls(name) {
+  if (name === "networth_holdings") {
+    return ["IND_STOCK", "MF", "US_STOCK", "BOND", "ETF"].map((t) => ({
+      name,
+      args: { asset_type: t },
+      label: `${name}:${t}`,
+    }));
+  }
+  return [{ name, args: {}, label: name }];
+}
+
 function pickTool(tools, hints) {
   const names = tools.map((t) => t.name);
   // exact-ish first
@@ -180,18 +193,20 @@ export class BrokerSession {
 
     const raw = {};
     let needsLogin = null;
-    for (const name of wanted) {
+    // Build a list of {name, args} calls — some tools need specific arguments.
+    const calls = wanted.flatMap((name) => toolCalls(name));
+    for (const { name, args, label } of calls) {
       try {
-        const r = await this.client.callTool({ name, arguments: {} });
+        const r = await this.client.callTool({ name, arguments: args || {} });
         const text = textOf(r);
         const url = findLoginUrl(text);
         if (url && /login|auth|consent|sign.?in/i.test(text)) {
           needsLogin = url;
           continue;
         }
-        raw[name] = tryJson(text) ?? text;
+        raw[label || name] = tryJson(text) ?? text;
       } catch (e) {
-        raw[name] = { error: String(e?.message || e) };
+        raw[label || name] = { error: String(e?.message || e) };
       }
     }
     if (needsLogin) {
@@ -266,7 +281,7 @@ function asArray(value) {
   if (Array.isArray(value)) return value;
   if (value && typeof value === "object") {
     // common containers: { holdings: [...] } / { data: [...] } / { net: [...] }
-    for (const k of ["holdings", "data", "positions", "net", "items", "results"]) {
+    for (const k of ["holdings", "data", "positions", "net", "items", "results", "stocks", "funds", "bonds", "instruments"]) {
       if (Array.isArray(value[k])) return value[k];
     }
   }
@@ -281,21 +296,25 @@ const firstKey = (o, keys) => keys.find((k) => o[k] != null);
 
 function mapHolding(row) {
   if (!row || typeof row !== "object") return null;
-  const symKey = firstKey(row, ["tradingsymbol", "symbol", "name", "scheme", "instrument"]);
+  const symKey = firstKey(row, [
+    "tradingsymbol", "symbol", "ticker", "name", "scheme_name", "fund_name",
+    "scheme", "instrument", "stock_name",
+  ]);
   if (!symKey) return null;
 
-  const qty = num(row[firstKey(row, ["quantity", "qty", "units"]) ?? ""] ?? 0);
-  const avg = num(row[firstKey(row, ["average_price", "avg_price", "avgPrice", "buy_price", "nav_buy"]) ?? ""] ?? 0);
-  const last = num(row[firstKey(row, ["last_price", "ltp", "current_price", "lastPrice", "nav"]) ?? ""] ?? 0);
+  const qty = num(row[firstKey(row, ["quantity", "qty", "units", "unit_count"]) ?? ""] ?? 0);
+  const avg = num(row[firstKey(row, ["average_price", "avg_price", "avgPrice", "buy_price", "nav_buy", "avg_nav"]) ?? ""] ?? 0);
+  const last = num(row[firstKey(row, ["last_price", "ltp", "current_price", "lastPrice", "nav", "current_nav", "unit_price"]) ?? ""] ?? 0);
 
-  let invested = num(row[firstKey(row, ["invested", "invested_value", "cost"]) ?? ""] ?? 0);
-  let current = num(row[firstKey(row, ["current", "current_value", "market_value", "value"]) ?? ""] ?? 0);
+  let invested = num(row[firstKey(row, ["invested", "invested_value", "invested_amount", "cost", "buy_value"]) ?? ""] ?? 0);
+  let current = num(row[firstKey(row, ["current", "current_value", "market_value", "value", "current_amount"]) ?? ""] ?? 0);
   if (!invested && qty && avg) invested = qty * avg;
   if (!current && qty && last) current = qty * last;
 
-  let pnl = num(row[firstKey(row, ["pnl", "profit", "gain", "unrealised", "unrealized"]) ?? ""] ?? 0);
+  let pnl = num(row[firstKey(row, ["pnl", "profit", "gain", "unrealised", "unrealized", "total_pnl", "absolute_pnl"]) ?? ""] ?? 0);
   if (!pnl && (current || invested)) pnl = current - invested;
-  const pnlPct = invested ? (pnl / invested) * 100 : null;
+  const pnlPct = num(row[firstKey(row, ["pnl_percentage", "pnl_pct", "pnl_percent", "returns_pct", "xirr"]) ?? ""] ?? 0)
+    || (invested ? (pnl / invested) * 100 : null);
 
   return {
     symbol: String(row[symKey]),
