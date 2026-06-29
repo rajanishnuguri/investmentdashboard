@@ -1,0 +1,248 @@
+// mcp.js
+// A thin wrapper around the official MCP SDK that acts as an MCP *client*
+// to remote broker MCP servers (Zerodha Kite, INDmoney, ...).
+//
+// This is the piece that makes the site "independent": the broker conversation
+// happens here, server-side, over the MCP Streamable-HTTP transport. The browser
+// never talks to the broker directly (so no CORS), and nothing routes through
+// Anthropic. The only thing the user still does is log in on the broker's own
+// page once — that's OAuth, and there is no way around it (nor should there be).
+
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+const URL_RE = /(https?:\/\/[^\s"'<>)\]]+)/g;
+
+// Tool-name heuristics. MCP servers don't share a fixed vocabulary, so we match
+// by intent. After you connect, the Tools tab shows the real names for your
+// account — tweak these arrays if your broker uses different ones.
+const LOGIN_HINTS = ["login", "authorize", "authorise", "auth", "connect", "session"];
+const HOLDING_HINTS = [
+  "holding", "portfolio", "networth", "net_worth", "net-worth",
+  "position", "mutual", "mf", "mf_holdings", "investment", "summary",
+];
+
+function pickTool(tools, hints) {
+  const names = tools.map((t) => t.name);
+  // exact-ish first
+  for (const h of hints) {
+    const hit = names.find((n) => n.toLowerCase() === h);
+    if (hit) return hit;
+  }
+  // then substring
+  for (const h of hints) {
+    const hit = names.find((n) => n.toLowerCase().includes(h));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function textOf(result) {
+  if (!result || !Array.isArray(result.content)) return "";
+  return result.content
+    .filter((b) => b && b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("\n");
+}
+
+function tryJson(text) {
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { /* not json */ }
+  // some servers wrap json in prose or code fences — try to salvage
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) { try { return JSON.parse(fence[1]); } catch { /* ignore */ } }
+  const brace = text.match(/[[{][\s\S]*[\]}]/);
+  if (brace) { try { return JSON.parse(brace[0]); } catch { /* ignore */ } }
+  return null;
+}
+
+function findLoginUrl(text) {
+  if (!text) return null;
+  const m = text.match(URL_RE);
+  if (!m) return null;
+  // prefer a broker auth-looking url
+  return (
+    m.find((u) => /login|auth|connect|oauth|kite|consent/i.test(u)) || m[0]
+  );
+}
+
+// One live connection to one broker's MCP server.
+export class BrokerSession {
+  constructor(key, url, clientInfo) {
+    this.key = key;
+    this.url = url;
+    this.clientInfo = clientInfo || { name: "wealth-trajectory", version: "1.0.0" };
+    this.client = null;
+    this.transport = null;
+    this.tools = [];
+    this.authed = false;
+    this.loginUrl = null;
+    this.lastError = null;
+  }
+
+  get connected() {
+    return !!this.client;
+  }
+
+  async ensureClient() {
+    if (this.client) return;
+    this.transport = new StreamableHTTPClientTransport(new URL(this.url));
+    this.client = new Client(this.clientInfo, { capabilities: {} });
+    await this.client.connect(this.transport);
+    const listed = await this.client.listTools();
+    this.tools = listed.tools || [];
+  }
+
+  // Kick off the broker login. Returns a URL the user must open to authenticate.
+  // After they finish on the broker page, the same MCP session is authorised,
+  // so later tool calls on this same BrokerSession succeed.
+  async beginLogin() {
+    await this.ensureClient();
+    const loginTool = pickTool(this.tools, LOGIN_HINTS);
+    if (!loginTool) {
+      // No explicit login tool. Either the server auths via OAuth-redirect at the
+      // transport level, or it's already open. Probe a data tool to see.
+      const probe = pickTool(this.tools, HOLDING_HINTS);
+      if (probe) {
+        try {
+          const r = await this.client.callTool({ name: probe, arguments: {} });
+          const url = findLoginUrl(textOf(r));
+          if (url) { this.loginUrl = url; return { loginUrl: url, tool: probe }; }
+          this.authed = true;
+          return { loginUrl: null, tool: probe, note: "No login step required." };
+        } catch (e) {
+          this.lastError = String(e?.message || e);
+          throw new Error(
+            `No login tool found and probe failed (${this.lastError}). ` +
+            `This broker may require an OAuth redirect flow — see README.`
+          );
+        }
+      }
+      throw new Error("No login or portfolio tool exposed by this server.");
+    }
+    const res = await this.client.callTool({ name: loginTool, arguments: {} });
+    const url = findLoginUrl(textOf(res));
+    this.loginUrl = url;
+    if (!url) {
+      // Some servers say "already logged in" instead of returning a URL
+      this.authed = true;
+    }
+    return { loginUrl: url, tool: loginTool };
+  }
+
+  // Pull whatever portfolio/holdings tools exist and return raw + best-effort
+  // normalised holdings.
+  async fetchPortfolio() {
+    await this.ensureClient();
+    const wanted = this.tools
+      .map((t) => t.name)
+      .filter((n) => HOLDING_HINTS.some((h) => n.toLowerCase().includes(h)));
+
+    if (wanted.length === 0) {
+      return { raw: {}, holdings: [], tools: this.tools.map((t) => t.name) };
+    }
+
+    const raw = {};
+    let needsLogin = null;
+    for (const name of wanted) {
+      try {
+        const r = await this.client.callTool({ name, arguments: {} });
+        const text = textOf(r);
+        const url = findLoginUrl(text);
+        if (url && /login|auth|consent|sign.?in/i.test(text)) {
+          needsLogin = url;
+          continue;
+        }
+        raw[name] = tryJson(text) ?? text;
+      } catch (e) {
+        raw[name] = { error: String(e?.message || e) };
+      }
+    }
+    if (needsLogin) {
+      this.loginUrl = needsLogin;
+      const err = new Error("LOGIN_REQUIRED");
+      err.loginUrl = needsLogin;
+      throw err;
+    }
+    this.authed = true;
+    const holdings = normaliseHoldings(raw);
+    return { raw, holdings, tools: this.tools.map((t) => t.name) };
+  }
+
+  async callTool(name, args) {
+    await this.ensureClient();
+    const r = await this.client.callTool({ name, arguments: args || {} });
+    const text = textOf(r);
+    return { text, json: tryJson(text), isError: !!r.isError };
+  }
+
+  async close() {
+    try { await this.client?.close?.(); } catch { /* ignore */ }
+    this.client = null;
+    this.transport = null;
+    this.authed = false;
+  }
+}
+
+// Best-effort mapping of MCP tool output into a uniform holding shape the
+// dashboard understands. Zerodha Kite returns standard Kite Connect holding
+// objects (tradingsymbol / quantity / average_price / last_price / pnl), which
+// we map precisely. For other shapes we make a reasonable guess and otherwise
+// leave the raw object visible in the Data tab.
+function normaliseHoldings(raw) {
+  const out = [];
+  for (const [tool, value] of Object.entries(raw)) {
+    const arr = asArray(value);
+    for (const row of arr) {
+      const h = mapHolding(row);
+      if (h) { h.source = tool; out.push(h); }
+    }
+  }
+  return out;
+}
+
+function asArray(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") {
+    // common containers: { holdings: [...] } / { data: [...] } / { net: [...] }
+    for (const k of ["holdings", "data", "positions", "net", "items", "results"]) {
+      if (Array.isArray(value[k])) return value[k];
+    }
+  }
+  return [];
+}
+
+const num = (v) => {
+  const n = typeof v === "string" ? parseFloat(v.replace(/[^0-9.\-]/g, "")) : v;
+  return Number.isFinite(n) ? n : 0;
+};
+const firstKey = (o, keys) => keys.find((k) => o[k] != null);
+
+function mapHolding(row) {
+  if (!row || typeof row !== "object") return null;
+  const symKey = firstKey(row, ["tradingsymbol", "symbol", "name", "scheme", "instrument"]);
+  if (!symKey) return null;
+
+  const qty = num(row[firstKey(row, ["quantity", "qty", "units"]) ?? ""] ?? 0);
+  const avg = num(row[firstKey(row, ["average_price", "avg_price", "avgPrice", "buy_price", "nav_buy"]) ?? ""] ?? 0);
+  const last = num(row[firstKey(row, ["last_price", "ltp", "current_price", "lastPrice", "nav"]) ?? ""] ?? 0);
+
+  let invested = num(row[firstKey(row, ["invested", "invested_value", "cost"]) ?? ""] ?? 0);
+  let current = num(row[firstKey(row, ["current", "current_value", "market_value", "value"]) ?? ""] ?? 0);
+  if (!invested && qty && avg) invested = qty * avg;
+  if (!current && qty && last) current = qty * last;
+
+  let pnl = num(row[firstKey(row, ["pnl", "profit", "gain", "unrealised", "unrealized"]) ?? ""] ?? 0);
+  if (!pnl && (current || invested)) pnl = current - invested;
+  const pnlPct = invested ? (pnl / invested) * 100 : null;
+
+  return {
+    symbol: String(row[symKey]),
+    exchange: row.exchange || row.exchange_segment || row.segment || "",
+    quantity: qty || null,
+    invested: invested || null,
+    current: current || (invested + pnl) || null,
+    pnl: pnl || 0,
+    pnlPct,
+  };
+}
