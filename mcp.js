@@ -22,11 +22,16 @@ const HOLDING_HINTS = [
   "position", "mutual", "mf", "mf_holdings", "investment", "summary",
 ];
 
+// Asset types to fetch from INDmoney. IND_STOCK is intentionally excluded —
+// Indian equity is already pulled from Kite/Zerodha to avoid double-counting.
+const INDMONEY_ASSET_TYPES = ["MF", "US_STOCK", "PPF", "EPF", "NPS", "BOND"];
+
 // Expand a tool name into one or more {name, args, label} calls.
 // Some tools (e.g. INDmoney's networth_holdings) need a required argument.
-function toolCalls(name) {
+function toolCalls(name, brokerKey) {
   if (name === "networth_holdings") {
-    return ["IND_STOCK", "MF", "US_STOCK", "BOND", "ETF"].map((t) => ({
+    const types = brokerKey === "indmoney" ? INDMONEY_ASSET_TYPES : ["IND_STOCK", "MF", "US_STOCK", "BOND", "ETF"];
+    return types.map((t) => ({
       name,
       args: { asset_type: t },
       label: `${name}:${t}`,
@@ -194,7 +199,7 @@ export class BrokerSession {
     const raw = {};
     let needsLogin = null;
     // Build a list of {name, args} calls — some tools need specific arguments.
-    const calls = wanted.flatMap((name) => toolCalls(name));
+    const calls = wanted.flatMap((name) => toolCalls(name, this.key));
     for (const { name, args, label } of calls) {
       try {
         const r = await this.client.callTool({ name, arguments: args || {} });
@@ -313,16 +318,50 @@ function mapHolding(row) {
 
   let pnl = num(row[firstKey(row, ["pnl", "profit", "gain", "unrealised", "unrealized", "total_pnl", "absolute_pnl"]) ?? ""] ?? 0);
   if (!pnl && (current || invested)) pnl = current - invested;
-  const pnlPct = num(row[firstKey(row, ["pnl_percentage", "pnl_pct", "pnl_percent", "pnl_per", "returns_pct", "xirr"]) ?? ""] ?? 0)
-    || (invested ? (pnl / invested) * 100 : null);
+
+  const absoluteReturn = pnl;
+  const absoluteReturnPct = invested ? (pnl / invested) * 100 : null;
+
+  // Return metrics — populated when the broker provides them
+  const xirr        = numOrNull(row[firstKey(row, ["xirr", "irr"]) ?? ""]);
+  const benchmarkXirr = numOrNull(row[firstKey(row, ["benchmark_xirr", "benchmark_irr", "benchmark_returns"]) ?? ""]);
+  const cagr        = numOrNull(row[firstKey(row, ["cagr", "annualised_return", "annualized_return"]) ?? ""]);
+  const dividendEarned = num(row[firstKey(row, ["dividend_earned", "dividends", "dividend_amount", "dividend"]) ?? ""] ?? 0);
+  const totalReturn = pnl + dividendEarned;
+  const totalReturnPct = invested ? (totalReturn / invested) * 100 : null;
+
+  // pnl_per from INDmoney is already absolute-return % when invested_amount is unknown
+  const pnlPct = numOrNull(row[firstKey(row, ["pnl_percentage", "pnl_pct", "pnl_percent", "pnl_per", "returns_pct"]) ?? ""])
+    ?? absoluteReturnPct;
 
   return {
-    symbol: String(row[symKey]),
-    exchange: row.exchange || row.exchange_segment || row.segment || "",
-    quantity: qty || null,
-    invested: invested || null,
-    current: current || (invested + pnl) || null,
-    pnl: pnl || 0,
+    symbol:       String(row[symKey]),
+    exchange:     row.exchange || row.exchange_segment || row.segment || row.asset_type || "",
+    assetType:    row.asset_type || row.assetclass_l2 || "",
+    broker:       row.broker || "",
+    quantity:     qty || null,
+    invested:     invested || null,
+    current:      current || (invested + pnl) || null,
+    // P&L
+    pnl:          absoluteReturn,
     pnlPct,
+    absoluteReturn,
+    absoluteReturnPct,
+    // Dividends
+    dividendEarned: dividendEarned || null,
+    totalReturn:    totalReturn || null,
+    totalReturnPct,
+    returnWithDividends:    totalReturnPct,
+    returnWithoutDividends: absoluteReturnPct,
+    // Annualised metrics
+    xirr,
+    benchmarkXirr,
+    cagr,
   };
 }
+
+const numOrNull = (v) => {
+  if (v == null || v === "" || v === "unknown") return null;
+  const n = typeof v === "string" ? parseFloat(v.replace(/[^0-9.\-]/g, "")) : v;
+  return Number.isFinite(n) ? n : null;
+};

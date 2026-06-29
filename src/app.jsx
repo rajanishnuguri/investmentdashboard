@@ -154,9 +154,11 @@ function BrokerCard({k, label, st, onConnect, onLoad}){
 function Overview({total, a, proj, go}){
   const frac = proj.todayFI ? (a.currentCorpus/proj.todayFI) : 0;
   const tiles = [
-    {label:"Current value", value:cr(total.current), sub:"loaded holdings"},
-    {label:"Invested", value:cr(total.invested), sub:"cost basis"},
-    {label:"Unrealised gain", value:cr(total.pnl), sub:total.invested?pctS(total.pnl/total.invested*100):"—", tone:total.pnl>=0?C.pos:C.neg},
+    {label:"Net worth", value:cr(total.current), sub:"current market value"},
+    {label:"Invested", value:cr(total.invested), sub:"total cost basis"},
+    {label:"Abs. gain (excl. div)", value:cr(total.pnl), sub:total.invested?pctS(total.pnl/total.invested*100):"—", tone:total.pnl>=0?C.pos:C.neg},
+    {label:"Dividends earned", value:cr(total.dividends), sub:"across all holdings", tone:C.pos},
+    {label:"Total return (incl. div)", value:cr(total.totalReturn), sub:total.invested?pctS(total.totalReturn/total.invested*100):"—", tone:total.totalReturn>=0?C.pos:C.neg},
     {label:"Holdings", value:String(total.count), sub:"across connected brokers"},
   ];
   return (
@@ -184,7 +186,48 @@ function Overview({total, a, proj, go}){
           </div>
         </div>
       </Panel>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{tiles.map(t=><Stat key={t.label} {...t}/>)}</div>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">{tiles.map(t=><Stat key={t.label} {...t}/>)}</div>
+    </div>
+  );
+}
+
+function MetricCell({label, value, tone}){
+  if(value==null) return null;
+  return (
+    <div className="text-right">
+      <div style={{color:C.muted,fontSize:10,letterSpacing:"0.05em"}}>{label}</div>
+      <div className="font-mono" style={{color:tone||C.text,fontSize:12,fontWeight:600}}>{value}</div>
+    </div>
+  );
+}
+
+function HoldingRow({h}){
+  const up=(h.pnl||0)>=0;
+  const tone=up?C.pos:C.neg;
+  const fmt=(v,isRate)=> v==null?"—": isRate? pctS(v): cr(v);
+  return (
+    <div className="rounded-lg px-3 py-2.5 space-y-1.5" style={{background:C.panel2}}>
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div style={{color:C.text,fontSize:13.5,fontWeight:600}}>{h.symbol}</div>
+          <div style={{color:C.muted,fontSize:11}}>{[h.assetType,h.broker,h.exchange].filter(Boolean).join(" · ")||h.source}</div>
+        </div>
+        <div className="font-mono text-right" style={{color:C.text,fontSize:13,fontWeight:600}}>{h.current!=null?cr(h.current):"—"}</div>
+        <div className="flex items-center gap-1 font-mono" style={{color:tone,fontSize:13,minWidth:72,justifyContent:"flex-end"}}>
+          <Icon name={up?"up":"down"} size={13}/>{h.absoluteReturnPct!=null?pctS(h.absoluteReturnPct):"—"}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-0.5 pl-0.5">
+        <MetricCell label="Invested"   value={h.invested!=null?cr(h.invested):null}/>
+        <MetricCell label="Abs. gain"  value={h.absoluteReturn!=null?cr(h.absoluteReturn):null} tone={tone}/>
+        {h.xirr!=null && <MetricCell label="XIRR" value={pctS(h.xirr)} tone={h.xirr>=0?C.pos:C.neg}/>}
+        {h.benchmarkXirr!=null && <MetricCell label="Benchmark XIRR" value={pctS(h.benchmarkXirr)}/>}
+        {h.cagr!=null && <MetricCell label="CAGR" value={pctS(h.cagr)} tone={h.cagr>=0?C.pos:C.neg}/>}
+        {h.dividendEarned>0 && <MetricCell label="Dividends" value={cr(h.dividendEarned)} tone={C.pos}/>}
+        {h.totalReturn!=null && h.dividendEarned>0 && <MetricCell label="Total return (incl. div)" value={cr(h.totalReturn)} tone={tone}/>}
+        {h.totalReturnPct!=null && h.dividendEarned>0 && <MetricCell label="Return incl. div %" value={pctS(h.totalReturnPct)} tone={tone}/>}
+        {h.returnWithoutDividends!=null && h.dividendEarned>0 && <MetricCell label="Return excl. div %" value={pctS(h.returnWithoutDividends)} tone={tone}/>}
+      </div>
     </div>
   );
 }
@@ -196,23 +239,9 @@ function Holdings({brokers}){
     <div className="space-y-5">
       {loaded.map(([k,label])=>(
         <Panel key={k} className="p-5">
-          <Eyebrow>{label}</Eyebrow>
-          <div className="mt-3 space-y-1.5">
-            {brokers[k].holdings.map((h,i)=>{
-              const up=(h.pnl||0)>=0;
-              return (
-                <div key={i} className="flex items-center gap-3 rounded-lg px-3 py-2.5" style={{background:C.panel2}}>
-                  <div className="flex-1 min-w-0">
-                    <div style={{color:C.text,fontSize:13.5,fontWeight:600}}>{h.symbol}</div>
-                    <div style={{color:C.muted,fontSize:11.5}}>{h.exchange||h.source}</div>
-                  </div>
-                  <div className="font-mono text-right" style={{color:C.text,fontSize:13}}>{h.current!=null?cr(h.current):"—"}</div>
-                  <div className="flex items-center gap-1 justify-end font-mono" style={{color:up?C.pos:C.neg,fontSize:13,width:92}}>
-                    <Icon name={up?"up":"down"} size={13}/>{h.pnlPct!=null?pctS(h.pnlPct):"—"}
-                  </div>
-                </div>
-              );
-            })}
+          <Eyebrow>{label}{brokers[k]?.fromCache?" · cached":""}</Eyebrow>
+          <div className="mt-3 space-y-2">
+            {brokers[k].holdings.map((h,i)=><HoldingRow key={i} h={h}/>)}
           </div>
         </Panel>
       ))}
@@ -432,9 +461,15 @@ function App(){
 
   const allHoldings = useMemo(()=> Object.values(brokers).flatMap(b=>b?.holdings||[]),[brokers]);
   const total = useMemo(()=>{
-    let invested=0,current=0,pnl=0,count=0;
-    for(const h of allHoldings){ invested+=h.invested||0; current+=h.current||0; pnl+=h.pnl||0; count++; }
-    return {invested,current,pnl:pnl||(current-invested),count};
+    let invested=0,current=0,pnl=0,dividends=0,count=0;
+    for(const h of allHoldings){
+      invested+=h.invested||0; current+=h.current||0;
+      pnl+=h.absoluteReturn||h.pnl||0;
+      dividends+=h.dividendEarned||0;
+      count++;
+    }
+    const totalReturn=pnl+dividends;
+    return {invested,current,pnl:pnl||(current-invested),dividends,totalReturn,count};
   },[allHoldings]);
 
   // seed FIRE corpus from live total once it lands

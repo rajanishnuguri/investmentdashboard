@@ -349,18 +349,28 @@ function Overview({
 }) {
   const frac = proj.todayFI ? a.currentCorpus / proj.todayFI : 0;
   const tiles = [{
-    label: "Current value",
+    label: "Net worth",
     value: cr(total.current),
-    sub: "loaded holdings"
+    sub: "current market value"
   }, {
     label: "Invested",
     value: cr(total.invested),
-    sub: "cost basis"
+    sub: "total cost basis"
   }, {
-    label: "Unrealised gain",
+    label: "Abs. gain (excl. div)",
     value: cr(total.pnl),
     sub: total.invested ? pctS(total.pnl / total.invested * 100) : "—",
     tone: total.pnl >= 0 ? C.pos : C.neg
+  }, {
+    label: "Dividends earned",
+    value: cr(total.dividends),
+    sub: "across all holdings",
+    tone: C.pos
+  }, {
+    label: "Total return (incl. div)",
+    value: cr(total.totalReturn),
+    sub: total.invested ? pctS(total.totalReturn / total.invested * 100) : "—",
+    tone: total.totalReturn >= 0 ? C.pos : C.neg
   }, {
     label: "Holdings",
     value: String(total.count),
@@ -438,11 +448,116 @@ function Overview({
     name: "chevron",
     size: 15
   }))))), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-2 lg:grid-cols-4 gap-3"
+    className: "grid grid-cols-2 lg:grid-cols-3 gap-3"
   }, tiles.map(t => /*#__PURE__*/React.createElement(Stat, {
     key: t.label,
     ...t
   }))));
+}
+function MetricCell({
+  label,
+  value,
+  tone
+}) {
+  if (value == null) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "text-right"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 10,
+      letterSpacing: "0.05em"
+    }
+  }, label), /*#__PURE__*/React.createElement("div", {
+    className: "font-mono",
+    style: {
+      color: tone || C.text,
+      fontSize: 12,
+      fontWeight: 600
+    }
+  }, value));
+}
+function HoldingRow({
+  h
+}) {
+  const up = (h.pnl || 0) >= 0;
+  const tone = up ? C.pos : C.neg;
+  const fmt = (v, isRate) => v == null ? "—" : isRate ? pctS(v) : cr(v);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "rounded-lg px-3 py-2.5 space-y-1.5",
+    style: {
+      background: C.panel2
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.text,
+      fontSize: 13.5,
+      fontWeight: 600
+    }
+  }, h.symbol), /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 11
+    }
+  }, [h.assetType, h.broker, h.exchange].filter(Boolean).join(" · ") || h.source)), /*#__PURE__*/React.createElement("div", {
+    className: "font-mono text-right",
+    style: {
+      color: C.text,
+      fontSize: 13,
+      fontWeight: 600
+    }
+  }, h.current != null ? cr(h.current) : "—"), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1 font-mono",
+    style: {
+      color: tone,
+      fontSize: 13,
+      minWidth: 72,
+      justifyContent: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: up ? "up" : "down",
+    size: 13
+  }), h.absoluteReturnPct != null ? pctS(h.absoluteReturnPct) : "—")), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-x-5 gap-y-0.5 pl-0.5"
+  }, /*#__PURE__*/React.createElement(MetricCell, {
+    label: "Invested",
+    value: h.invested != null ? cr(h.invested) : null
+  }), /*#__PURE__*/React.createElement(MetricCell, {
+    label: "Abs. gain",
+    value: h.absoluteReturn != null ? cr(h.absoluteReturn) : null,
+    tone: tone
+  }), h.xirr != null && /*#__PURE__*/React.createElement(MetricCell, {
+    label: "XIRR",
+    value: pctS(h.xirr),
+    tone: h.xirr >= 0 ? C.pos : C.neg
+  }), h.benchmarkXirr != null && /*#__PURE__*/React.createElement(MetricCell, {
+    label: "Benchmark XIRR",
+    value: pctS(h.benchmarkXirr)
+  }), h.cagr != null && /*#__PURE__*/React.createElement(MetricCell, {
+    label: "CAGR",
+    value: pctS(h.cagr),
+    tone: h.cagr >= 0 ? C.pos : C.neg
+  }), h.dividendEarned > 0 && /*#__PURE__*/React.createElement(MetricCell, {
+    label: "Dividends",
+    value: cr(h.dividendEarned),
+    tone: C.pos
+  }), h.totalReturn != null && h.dividendEarned > 0 && /*#__PURE__*/React.createElement(MetricCell, {
+    label: "Total return (incl. div)",
+    value: cr(h.totalReturn),
+    tone: tone
+  }), h.totalReturnPct != null && h.dividendEarned > 0 && /*#__PURE__*/React.createElement(MetricCell, {
+    label: "Return incl. div %",
+    value: pctS(h.totalReturnPct),
+    tone: tone
+  }), h.returnWithoutDividends != null && h.dividendEarned > 0 && /*#__PURE__*/React.createElement(MetricCell, {
+    label: "Return excl. div %",
+    value: pctS(h.returnWithoutDividends),
+    tone: tone
+  })));
 }
 function Holdings({
   brokers
@@ -456,47 +571,12 @@ function Holdings({
   }, loaded.map(([k, label]) => /*#__PURE__*/React.createElement(Panel, {
     key: k,
     className: "p-5"
-  }, /*#__PURE__*/React.createElement(Eyebrow, null, label), /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 space-y-1.5"
-  }, brokers[k].holdings.map((h, i) => {
-    const up = (h.pnl || 0) >= 0;
-    return /*#__PURE__*/React.createElement("div", {
-      key: i,
-      className: "flex items-center gap-3 rounded-lg px-3 py-2.5",
-      style: {
-        background: C.panel2
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 min-w-0"
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: C.text,
-        fontSize: 13.5,
-        fontWeight: 600
-      }
-    }, h.symbol), /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: C.muted,
-        fontSize: 11.5
-      }
-    }, h.exchange || h.source)), /*#__PURE__*/React.createElement("div", {
-      className: "font-mono text-right",
-      style: {
-        color: C.text,
-        fontSize: 13
-      }
-    }, h.current != null ? cr(h.current) : "—"), /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-1 justify-end font-mono",
-      style: {
-        color: up ? C.pos : C.neg,
-        fontSize: 13,
-        width: 92
-      }
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: up ? "up" : "down",
-      size: 13
-    }), h.pnlPct != null ? pctS(h.pnlPct) : "—"));
-  })))));
+  }, /*#__PURE__*/React.createElement(Eyebrow, null, label, brokers[k]?.fromCache ? " · cached" : ""), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 space-y-2"
+  }, brokers[k].holdings.map((h, i) => /*#__PURE__*/React.createElement(HoldingRow, {
+    key: i,
+    h: h
+  }))))));
 }
 function Allocation({
   holdings
@@ -902,17 +982,22 @@ function App() {
     let invested = 0,
       current = 0,
       pnl = 0,
+      dividends = 0,
       count = 0;
     for (const h of allHoldings) {
       invested += h.invested || 0;
       current += h.current || 0;
-      pnl += h.pnl || 0;
+      pnl += h.absoluteReturn || h.pnl || 0;
+      dividends += h.dividendEarned || 0;
       count++;
     }
+    const totalReturn = pnl + dividends;
     return {
       invested,
       current,
       pnl: pnl || current - invested,
+      dividends,
+      totalReturn,
       count
     };
   }, [allHoldings]);
