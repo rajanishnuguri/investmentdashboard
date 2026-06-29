@@ -69,29 +69,14 @@ app.use((_req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirname, "public")));
-// Also serve vendor files from the root-level public/vendor when index.html
-// lives next to server.js rather than inside public/.
-app.use("/vendor", express.static(path.join(__dirname, "public", "vendor")));
-app.use("/favicon.svg", express.static(path.join(__dirname, "public", "favicon.svg")));
-
-// Find the dashboard whether it's in public/ or sitting next to server.js,
-// so a flattened download still works.
-const INDEX_CANDIDATES = [
-  path.join(__dirname, "public", "index.html"),
-  path.join(__dirname, "index.html"),
-];
-const indexFile = INDEX_CANDIDATES.find((p) => fs.existsSync(p));
+// Everything — index.html, vendor JS/CSS, favicon — lives in public/.
+const PUBLIC = path.join(__dirname, "public");
+app.use(express.static(PUBLIC));
 
 app.get("/", (_req, res) => {
-  if (indexFile) return res.sendFile(indexFile);
-  res
-    .status(500)
-    .type("text/plain")
-    .send(
-      "index.html not found. Put it at wealth-trajectory/public/index.html " +
-      "(or next to server.js) and restart."
-    );
+  const indexFile = path.join(PUBLIC, "index.html");
+  if (fs.existsSync(indexFile)) return res.sendFile(indexFile);
+  res.status(500).type("text/plain").send("index.html not found in public/");
 });
 
 const wrap = (fn) => (req, res) =>
