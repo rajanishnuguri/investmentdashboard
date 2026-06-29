@@ -323,7 +323,8 @@ function mapHolding(row) {
   const absoluteReturnPct = invested ? (pnl / invested) * 100 : null;
 
   // Return metrics — populated when the broker provides them
-  const xirr        = numOrNull(row[firstKey(row, ["xirr", "irr"]) ?? ""]);
+  const xirrRaw     = numOrNull(row[firstKey(row, ["xirr", "irr"]) ?? ""]);
+  const xirr        = xirrRaw === 0 ? null : xirrRaw;
   const benchmarkXirr = numOrNull(row[firstKey(row, ["benchmark_xirr", "benchmark_irr", "benchmark_returns"]) ?? ""]);
   const cagr        = numOrNull(row[firstKey(row, ["cagr", "annualised_return", "annualized_return"]) ?? ""]);
   const dividendEarned = num(row[firstKey(row, ["dividend_earned", "dividends", "dividend_amount", "dividend"]) ?? ""] ?? 0);
