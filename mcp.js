@@ -89,8 +89,14 @@ export class BrokerSession {
     this.transport = new StreamableHTTPClientTransport(new URL(this.url));
     this.client = new Client(this.clientInfo, { capabilities: {} });
     await this.client.connect(this.transport);
-    const listed = await this.client.listTools();
-    this.tools = listed.tools || [];
+    try {
+      const listed = await this.client.listTools();
+      this.tools = listed.tools || [];
+    } catch (e) {
+      // Some servers (e.g. INDmoney) require auth before they expose tools.
+      // Store the error and let beginLogin() handle it.
+      this.listToolsError = String(e?.message || e);
+    }
   }
 
   // Kick off the broker login. Returns a URL the user must open to authenticate.
@@ -98,6 +104,17 @@ export class BrokerSession {
   // so later tool calls on this same BrokerSession succeed.
   async beginLogin() {
     await this.ensureClient();
+
+    // Server requires auth before listing tools — extract login URL from the error.
+    if (this.listToolsError) {
+      const url = findLoginUrl(this.listToolsError) || this._oauthLoginUrl();
+      if (url) {
+        this.loginUrl = url;
+        return { loginUrl: url, note: "Auth required before tools are visible." };
+      }
+      throw new Error(`Server requires auth but no login URL found. Error: ${this.listToolsError}`);
+    }
+
     const loginTool = pickTool(this.tools, LOGIN_HINTS);
     if (!loginTool) {
       // No explicit login tool. Either the server auths via OAuth-redirect at the
@@ -134,6 +151,10 @@ export class BrokerSession {
   // normalised holdings.
   async fetchPortfolio() {
     await this.ensureClient();
+    // If tools were unavailable at connect time (auth-gated), retry now —
+    // the user may have just completed OAuth in the browser.
+    if (this.tools.length === 0) await this.refreshToolsAfterAuth();
+
     const wanted = this.tools
       .map((t) => t.name)
       .filter((n) => HOLDING_HINTS.some((h) => n.toLowerCase().includes(h)));
@@ -176,11 +197,36 @@ export class BrokerSession {
     return { text, json: tryJson(text), isError: !!r.isError };
   }
 
+  // Derive a probable OAuth login URL from the MCP server's base URL.
+  // INDmoney's MCP URL is https://mcp.indmoney.com/mcp — their login page is
+  // at the same origin. This is a best-effort fallback when the error message
+  // contains no URL.
+  _oauthLoginUrl() {
+    try {
+      const u = new URL(this.url);
+      return `${u.origin}/login`;
+    } catch { return null; }
+  }
+
+  // After the user completes OAuth in the browser, the existing MCP session
+  // becomes authorised. Re-fetch the tool list so portfolio calls can proceed.
+  async refreshToolsAfterAuth() {
+    if (!this.client) return;
+    try {
+      const listed = await this.client.listTools();
+      this.tools = listed.tools || [];
+      this.listToolsError = null;
+    } catch (e) {
+      this.lastError = String(e?.message || e);
+    }
+  }
+
   async close() {
     try { await this.client?.close?.(); } catch { /* ignore */ }
     this.client = null;
     this.transport = null;
     this.authed = false;
+    this.listToolsError = null;
   }
 }
 
