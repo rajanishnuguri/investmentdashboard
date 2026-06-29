@@ -43,6 +43,16 @@ function getSession(key) {
 
 const app = express();
 app.use(express.json());
+
+// Babel Standalone (used for in-browser JSX transpilation) requires eval().
+app.use((_req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.tailwindcss.com https://unpkg.com; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;"
+  );
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 
 // Find the dashboard whether it's in public/ or sitting next to server.js,
