@@ -15,13 +15,15 @@ const PIE = ["#2A8FD6","#0FB39A","#7C6BE0","#E0A310","#5566E0","#E0566B","#8492A
 
 const USERS = [["rajanish","Rajanish"],["aswini","Aswini"]];
 const BROKERS = [["kite","Zerodha · Kite"],["indmoney","INDmoney"]];
+const USER_BROKERS = { rajanish: ["kite","indmoney"], aswini: ["kite","indmoney","truthifi"] };
 
 const ASSET_GROUPS = [
-  { key:"eq",    label:"Indian Equities",   color:"#2A8FD6", match: h => !["MF","US_STOCK","EPF","PPF","NPS","BOND"].includes(h.assetType) && (h.exchange==="NSE"||h.exchange==="BSE"||(!h.assetType&&h.exchange)) },
+  { key:"eq",    label:"Indian Equities",   color:"#2A8FD6", match: h => !["MF","US_STOCK","EPF","PPF","NPS","BOND","US_401K"].includes(h.assetType) && (h.exchange==="NSE"||h.exchange==="BSE"||(!h.assetType&&h.exchange)) },
   { key:"mf",    label:"Mutual Funds",      color:"#0FB39A", match: h => h.assetType==="MF" },
   { key:"us",    label:"US Stocks & ETFs",  color:"#7C6BE0", match: h => h.assetType==="US_STOCK" },
   { key:"fixed", label:"EPF / PPF / NPS",   color:"#E0A310", match: h => ["EPF","PPF","NPS"].includes(h.assetType) },
   { key:"bond",  label:"Bonds",             color:"#5566E0", match: h => h.assetType==="BOND" },
+  { key:"ret",   label:"401k / ESOP (USD)", color:"#E05699", match: h => h.assetType==="US_401K" },
 ];
 function classifyHolding(h) {
   return ASSET_GROUPS.find(g => g.match(h)) || { key:"other", label:"Other", color:"#8492A8" };
@@ -152,6 +154,31 @@ function BrokerCard({user, brokerKey, label, st, onConnect, onLoad}){
         </div>
       </div>
       <div className="mt-1.5" style={{color:st?.error?C.neg:C.sub,fontSize:11.5}}>{status}</div>
+    </Panel>
+  );
+}
+
+/* ─── Truthifi (Claude-synced) card ─── */
+function TruthifiCard({st}){
+  const count = st?.cachedHoldings?.length || 0;
+  const total = (st?.cachedHoldings||[]).reduce((s,h)=>s+(h.current||0),0);
+  return (
+    <Panel className="p-4" style={{borderColor:"#F0D0E8"}}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span style={{width:7,height:7,borderRadius:99,background:count?C.go:C.muted,flexShrink:0}}/>
+          <span style={{color:C.text,fontSize:13.5,fontWeight:600}}>Truthifi · 401k / ESOP</span>
+        </div>
+        <span className="rounded-md px-2 py-0.5" style={{background:"#F9EDF5",color:"#A03070",fontSize:10.5,fontWeight:700,letterSpacing:"0.08em"}}>
+          CLAUDE SYNCED
+        </span>
+      </div>
+      <div className="mt-1.5" style={{color:C.sub,fontSize:11.5}}>
+        {count
+          ? <>{count} holdings · {cr(total)} · synced {timeAgo(st?.cachedAt)}</>
+          : "No data yet — ask Claude to sync Truthifi"}
+      </div>
+      {st?.usdInr && <div style={{color:C.muted,fontSize:10.5,marginTop:2}}>1 USD = ₹{st.usdInr} at time of sync</div>}
     </Panel>
   );
 }
@@ -670,10 +697,12 @@ function UserDashboard({uid, uLabel, brokers, onConnect, onLoad, onCall}){
     <div className="space-y-5">
       {/* Broker cards */}
       <div className="grid sm:grid-cols-2 gap-3">
-        {BROKERS.map(([k,label])=>(
-          <BrokerCard key={k} user={uid} brokerKey={k} label={label} st={brokers?.[k]}
-            onConnect={onConnect} onLoad={onLoad}/>
-        ))}
+        {(USER_BROKERS[uid]||[]).map(k=>{
+          if(k==="truthifi") return <TruthifiCard key={k} st={brokers?.[k]}/>;
+          const label = BROKERS.find(([bk])=>bk===k)?.[1]||k;
+          return <BrokerCard key={k} user={uid} brokerKey={k} label={label} st={brokers?.[k]}
+            onConnect={onConnect} onLoad={onLoad}/>;
+        })}
       </div>
 
       {/* Sub-nav */}

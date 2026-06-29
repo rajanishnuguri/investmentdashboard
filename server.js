@@ -39,6 +39,17 @@ const BROKERS = {
     label: "INDmoney",
     url: process.env.INDMONEY_MCP_URL || "https://mcp.indmoney.com/mcp",
   },
+  truthifi: {
+    label: "Truthifi (401k / ESOP)",
+    url: null,       // fetched via Claude MCP, not server-side — cache only
+    claudeSync: true,
+  },
+};
+
+// Which brokers each user has access to
+const USER_BROKERS = {
+  rajanish: ["kite", "indmoney"],
+  aswini:   ["kite", "indmoney", "truthifi"],
 };
 
 // Sessions keyed by "user::broker"
@@ -101,19 +112,35 @@ app.get("/api/status", wrap(async (_req, res) => {
   const out = {};
   for (const [user, uCfg] of Object.entries(USERS)) {
     out[user] = { label: uCfg.label, brokers: {} };
-    for (const [broker, bCfg] of Object.entries(BROKERS)) {
-      const key = `${user}::${broker}`;
-      const s = sessions.get(key);
+    for (const broker of (USER_BROKERS[user] || [])) {
+      const bCfg = BROKERS[broker];
       const cached = cache[user]?.[broker];
-      out[user].brokers[broker] = {
-        label: bCfg.label,
-        connected: !!s?.connected,
-        authed: !!s?.authed,
-        tools: s?.tools?.map((t) => t.name) || [],
-        loginUrl: s?.loginUrl || null,
-        cachedHoldings: cached?.holdings || null,
-        cachedAt: cached?.savedAt || null,
-      };
+      if (bCfg.claudeSync) {
+        // Truthifi — served from cache only, no live MCP session
+        out[user].brokers[broker] = {
+          label: bCfg.label,
+          claudeSync: true,
+          connected: false,
+          authed: false,
+          tools: [],
+          loginUrl: null,
+          cachedHoldings: cached?.holdings || null,
+          cachedAt: cached?.savedAt || null,
+          usdInr: cached?.usdInr || null,
+        };
+      } else {
+        const key = `${user}::${broker}`;
+        const s = sessions.get(key);
+        out[user].brokers[broker] = {
+          label: bCfg.label,
+          connected: !!s?.connected,
+          authed: !!s?.authed,
+          tools: s?.tools?.map((t) => t.name) || [],
+          loginUrl: s?.loginUrl || null,
+          cachedHoldings: cached?.holdings || null,
+          cachedAt: cached?.savedAt || null,
+        };
+      }
     }
   }
   res.json({ users: out });

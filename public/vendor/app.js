@@ -40,11 +40,15 @@ const C = {
 const PIE = ["#2A8FD6", "#0FB39A", "#7C6BE0", "#E0A310", "#5566E0", "#E0566B", "#8492A8", "#C77E0A", "#19B7A6", "#9B8CFF"];
 const USERS = [["rajanish", "Rajanish"], ["aswini", "Aswini"]];
 const BROKERS = [["kite", "Zerodha · Kite"], ["indmoney", "INDmoney"]];
+const USER_BROKERS = {
+  rajanish: ["kite", "indmoney"],
+  aswini: ["kite", "indmoney", "truthifi"]
+};
 const ASSET_GROUPS = [{
   key: "eq",
   label: "Indian Equities",
   color: "#2A8FD6",
-  match: h => !["MF", "US_STOCK", "EPF", "PPF", "NPS", "BOND"].includes(h.assetType) && (h.exchange === "NSE" || h.exchange === "BSE" || !h.assetType && h.exchange)
+  match: h => !["MF", "US_STOCK", "EPF", "PPF", "NPS", "BOND", "US_401K"].includes(h.assetType) && (h.exchange === "NSE" || h.exchange === "BSE" || !h.assetType && h.exchange)
 }, {
   key: "mf",
   label: "Mutual Funds",
@@ -65,6 +69,11 @@ const ASSET_GROUPS = [{
   label: "Bonds",
   color: "#5566E0",
   match: h => h.assetType === "BOND"
+}, {
+  key: "ret",
+  label: "401k / ESOP (USD)",
+  color: "#E05699",
+  match: h => h.assetType === "US_401K"
 }];
 function classifyHolding(h) {
   return ASSET_GROUPS.find(g => g.match(h)) || {
@@ -351,6 +360,59 @@ function BrokerCard({
       fontSize: 11.5
     }
   }, status));
+}
+
+/* ─── Truthifi (Claude-synced) card ─── */
+function TruthifiCard({
+  st
+}) {
+  const count = st?.cachedHoldings?.length || 0;
+  const total = (st?.cachedHoldings || []).reduce((s, h) => s + (h.current || 0), 0);
+  return /*#__PURE__*/React.createElement(Panel, {
+    className: "p-4",
+    style: {
+      borderColor: "#F0D0E8"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 7,
+      height: 7,
+      borderRadius: 99,
+      background: count ? C.go : C.muted,
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.text,
+      fontSize: 13.5,
+      fontWeight: 600
+    }
+  }, "Truthifi · 401k / ESOP")), /*#__PURE__*/React.createElement("span", {
+    className: "rounded-md px-2 py-0.5",
+    style: {
+      background: "#F9EDF5",
+      color: "#A03070",
+      fontSize: 10.5,
+      fontWeight: 700,
+      letterSpacing: "0.08em"
+    }
+  }, "CLAUDE SYNCED")), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1.5",
+    style: {
+      color: C.sub,
+      fontSize: 11.5
+    }
+  }, count ? /*#__PURE__*/React.createElement(React.Fragment, null, count, " holdings · ", cr(total), " · synced ", timeAgo(st?.cachedAt)) : "No data yet — ask Claude to sync Truthifi"), st?.usdInr && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 10.5,
+      marginTop: 2
+    }
+  }, "1 USD = ₹", st.usdInr, " at time of sync"));
 }
 
 /* ─── Overview ─── */
@@ -1422,15 +1484,22 @@ function UserDashboard({
     className: "space-y-5"
   }, /*#__PURE__*/React.createElement("div", {
     className: "grid sm:grid-cols-2 gap-3"
-  }, BROKERS.map(([k, label]) => /*#__PURE__*/React.createElement(BrokerCard, {
-    key: k,
-    user: uid,
-    brokerKey: k,
-    label: label,
-    st: brokers?.[k],
-    onConnect: onConnect,
-    onLoad: onLoad
-  }))), /*#__PURE__*/React.createElement("nav", {
+  }, (USER_BROKERS[uid] || []).map(k => {
+    if (k === "truthifi") return /*#__PURE__*/React.createElement(TruthifiCard, {
+      key: k,
+      st: brokers?.[k]
+    });
+    const label = BROKERS.find(([bk]) => bk === k)?.[1] || k;
+    return /*#__PURE__*/React.createElement(BrokerCard, {
+      key: k,
+      user: uid,
+      brokerKey: k,
+      label: label,
+      st: brokers?.[k],
+      onConnect: onConnect,
+      onLoad: onLoad
+    });
+  })), /*#__PURE__*/React.createElement("nav", {
     className: "flex gap-1 overflow-x-auto pb-1"
   }, USER_NAV.map(([k, l, ic]) => /*#__PURE__*/React.createElement("button", {
     key: k,
