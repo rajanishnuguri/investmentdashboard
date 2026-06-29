@@ -8,9 +8,25 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 import { BrokerSession } from "./mcp.js";
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Compile JSX once at startup so the browser never needs Babel.
+function buildApp() {
+  const babel = require("@babel/core");
+  const src = fs.readFileSync(path.join(__dirname, "src", "app.jsx"), "utf8");
+  const { code } = babel.transformSync(src, {
+    presets: [["@babel/preset-react", { runtime: "classic" }]],
+    filename: "app.jsx",
+  });
+  const out = path.join(__dirname, "public", "vendor", "app.js");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, code);
+}
+buildApp();
 const PORT = process.env.PORT || 8787;
 
 // Broker MCP endpoints. Override via env if these ever change.
