@@ -129,9 +129,20 @@ app.post("/api/:broker/disconnect", wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n  Wealth Trajectory running →  http://localhost:${PORT}\n`);
   console.log("  Brokers configured:");
   for (const [k, c] of Object.entries(BROKERS)) console.log(`   • ${k.padEnd(9)} ${c.url}`);
   console.log("");
+});
+
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.error(`\n  Port ${PORT} is already in use. Run this to free it:\n`);
+    console.error(`    kill $(lsof -ti tcp:${PORT})\n`);
+    console.error(`  Then start the server again.\n`);
+    process.exit(1);
+  } else {
+    throw e;
+  }
 });
