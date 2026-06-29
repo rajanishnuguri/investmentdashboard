@@ -335,10 +335,16 @@ function mapHolding(row) {
   const pnlPct = numOrNull(row[firstKey(row, ["pnl_percentage", "pnl_pct", "pnl_percent", "pnl_per", "returns_pct"]) ?? ""])
     ?? absoluteReturnPct;
 
+  const assetType = row.asset_type || row.assetclass_l2 || "";
+  // For EPF/PPF/NPS, suppress company-level names — just show the scheme type.
+  const symbol = ["EPF", "PPF", "NPS"].includes(row.asset_type)
+    ? row.asset_type
+    : String(row[symKey]);
+
   return {
-    symbol:       String(row[symKey]),
+    symbol,
     exchange:     row.exchange || row.exchange_segment || row.segment || row.asset_type || "",
-    assetType:    row.asset_type || row.assetclass_l2 || "",
+    assetType,
     broker:       row.broker || "",
     quantity:     qty || null,
     invested:     invested || null,
