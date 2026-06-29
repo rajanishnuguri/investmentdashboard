@@ -184,6 +184,26 @@ app.get("/api/:user/:broker/portfolio", wrap(async (req, res) => {
 
   try {
     const data = await s.fetchPortfolio();
+
+    // Truthifi returns USD values — convert to INR before saving.
+    if (broker === "truthifi" && data.holdings?.length) {
+      const usdInr = await fetchUsdInr();
+      const ACCOUNT_LABELS = {}; // accountId → label derived from securityType/account
+      for (const h of data.holdings) {
+        if (h.current)  h.current  = parseFloat((h.current  * usdInr).toFixed(2));
+        if (h.invested) h.invested = parseFloat((h.invested * usdInr).toFixed(2));
+        if (h.unitPrice) h.unitPrice = parseFloat((h.unitPrice * usdInr).toFixed(2));
+        if (h.pnl)          h.pnl          = (h.current||0) - (h.invested||0);
+        if (h.absoluteReturn !== undefined) h.absoluteReturn = h.pnl;
+        h.absoluteReturnPct = h.invested ? (h.pnl / h.invested) * 100 : null;
+        h.pnlPct = h.absoluteReturnPct;
+        h.assetType = "US_401K";
+        h.exchange  = "USD";
+        h.usdInr    = usdInr;
+      }
+      data.usdInr = usdInr;
+    }
+
     saveCache(user, broker, data);
     res.json({ broker, ...data });
   } catch (e) {
@@ -194,6 +214,20 @@ app.get("/api/:user/:broker/portfolio", wrap(async (req, res) => {
     throw e;
   }
 }));
+
+// Fetch current USD/INR rate from Yahoo Finance (cached 5 min).
+let _usdInrCache = null;
+async function fetchUsdInr() {
+  if (_usdInrCache && Date.now() - _usdInrCache.ts < 5 * 60 * 1000) return _usdInrCache.rate;
+  try {
+    const r = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/USDINR=X?interval=1d&range=1d",
+      { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" } });
+    const d = await r.json();
+    const rate = d?.chart?.result?.[0]?.meta?.regularMarketPrice || 84;
+    _usdInrCache = { rate, ts: Date.now() };
+    return rate;
+  } catch { return _usdInrCache?.rate || 84; }
+}
 
 app.get("/api/:user/:broker/tools", wrap(async (req, res) => {
   const { user, broker } = req.params;

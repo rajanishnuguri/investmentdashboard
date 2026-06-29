@@ -20,6 +20,7 @@ const LOGIN_HINTS = ["login", "authorize", "authorise", "auth", "connect", "sess
 const HOLDING_HINTS = [
   "holding", "portfolio", "networth", "net_worth", "net-worth",
   "position", "mutual", "mf", "mf_holdings", "investment", "summary",
+  "dated_holding",
 ];
 
 // Asset types to fetch from INDmoney. IND_STOCK is intentionally excluded —
@@ -36,6 +37,22 @@ function toolCalls(name, brokerKey) {
       args: { asset_type: t },
       label: `${name}:${t}`,
     }));
+  }
+  // Truthifi: only fetch dated_holdings with required args; skip all other tools.
+  if (brokerKey === "truthifi") {
+    if (name === "get_dated_holdings") {
+      const today = new Date().toISOString().split("T")[0];
+      return [{
+        name,
+        args: {
+          include: ["accountId","quantity","symbol","securityName","securityType","balance","price","priceAsOf","costBasis","date","maxAvailableDateRange"],
+          dateRange: { from: "2025-01-01", to: today },
+          sort: { field: "balance", direction: "desc" },
+        },
+        label: name,
+      }];
+    }
+    return []; // skip all other Truthifi tools
   }
   return [{ name, args: {}, label: name }];
 }
@@ -187,6 +204,11 @@ export class BrokerSession {
     // If tools were unavailable at connect time (auth-gated), retry now —
     // the user may have just completed OAuth in the browser.
     if (this.tools.length === 0) await this.refreshToolsAfterAuth();
+    // Still no tools after retry — auth is required; signal cache fallback.
+    if (this.tools.length === 0 && this.listToolsError) {
+      const err = new Error("LOGIN_REQUIRED");
+      throw err;
+    }
 
     const wanted = this.tools
       .map((t) => t.name)
@@ -285,8 +307,8 @@ function normaliseHoldings(raw) {
 function asArray(value) {
   if (Array.isArray(value)) return value;
   if (value && typeof value === "object") {
-    // common containers: { holdings: [...] } / { data: [...] } / { net: [...] }
-    for (const k of ["holdings", "data", "positions", "net", "items", "results", "stocks", "funds", "bonds", "instruments"]) {
+    // common containers — "output" is Truthifi's wrapper key
+    for (const k of ["output", "holdings", "data", "positions", "net", "items", "results", "stocks", "funds", "bonds", "instruments"]) {
       if (Array.isArray(value[k])) return value[k];
     }
   }
@@ -302,17 +324,17 @@ const firstKey = (o, keys) => keys.find((k) => o[k] != null);
 function mapHolding(row) {
   if (!row || typeof row !== "object") return null;
   const symKey = firstKey(row, [
-    "tradingsymbol", "symbol", "ticker", "investment", "name", "scheme_name",
-    "fund_name", "scheme", "instrument", "stock_name",
+    "tradingsymbol", "symbol", "ticker", "securityName", "investment", "name",
+    "scheme_name", "fund_name", "scheme", "instrument", "stock_name",
   ]);
   if (!symKey) return null;
 
   const qty = num(row[firstKey(row, ["quantity", "qty", "units", "total_units", "unit_count"]) ?? ""] ?? 0);
   const avg = num(row[firstKey(row, ["average_price", "avg_price", "avgPrice", "buy_price", "nav_buy", "avg_nav"]) ?? ""] ?? 0);
-  const last = num(row[firstKey(row, ["last_price", "ltp", "current_price", "lastPrice", "nav", "current_nav", "unit_price"]) ?? ""] ?? 0);
+  const last = num(row[firstKey(row, ["last_price", "ltp", "current_price", "lastPrice", "price", "nav", "current_nav", "unit_price"]) ?? ""] ?? 0);
 
-  let invested = num(row[firstKey(row, ["invested", "invested_value", "invested_amount", "cost", "buy_value"]) ?? ""] ?? 0);
-  let current = num(row[firstKey(row, ["current", "current_value", "market_value", "value", "current_amount"]) ?? ""] ?? 0);
+  let invested = num(row[firstKey(row, ["invested", "invested_value", "invested_amount", "costBasis", "cost", "buy_value"]) ?? ""] ?? 0);
+  let current = num(row[firstKey(row, ["current", "current_value", "market_value", "balance", "value", "current_amount"]) ?? ""] ?? 0);
   if (!invested && qty && avg) invested = qty * avg;
   if (!current && qty && last) current = qty * last;
 
@@ -335,7 +357,7 @@ function mapHolding(row) {
   const pnlPct = numOrNull(row[firstKey(row, ["pnl_percentage", "pnl_pct", "pnl_percent", "pnl_per", "returns_pct"]) ?? ""])
     ?? absoluteReturnPct;
 
-  const assetType = row.asset_type || row.assetclass_l2 || "";
+  const assetType = row.asset_type || row.assetclass_l2 || row.securityType || "";
   // For EPF/PPF/NPS, suppress company-level names — just show the scheme type.
   const symbol = ["EPF", "PPF", "NPS"].includes(row.asset_type)
     ? row.asset_type
