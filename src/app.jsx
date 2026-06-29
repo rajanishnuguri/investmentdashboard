@@ -158,27 +158,41 @@ function BrokerCard({user, brokerKey, label, st, onConnect, onLoad}){
   );
 }
 
-/* ─── Truthifi (Claude-synced) card ─── */
-function TruthifiCard({st}){
-  const count = st?.cachedHoldings?.length || 0;
-  const total = (st?.cachedHoldings||[]).reduce((s,h)=>s+(h.current||0),0);
+/* ─── Truthifi broker card (rate-limited — shows warning) ─── */
+function TruthifiCard({user, st, onConnect, onLoad}){
+  const dot = st?.authed ? C.go : st?.connected ? C.amber : C.muted;
+  const status = st?.error ? st.error
+    : st?.loading ? "Working…"
+    : st?.authed ? `${st.holdings?.length||0} holdings loaded`
+    : st?.fromCache ? `${st.holdings?.length||0} holdings · last session`
+    : st?.connected ? "Connected — finish login, then Load"
+    : "Not connected";
   return (
-    <Panel className="p-4" style={{borderColor:"#F0D0E8"}}>
+    <Panel className="p-4" style={{borderColor:"#E8D0F0"}}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span style={{width:7,height:7,borderRadius:99,background:count?C.go:C.muted,flexShrink:0}}/>
+          <span style={{width:7,height:7,borderRadius:99,background:dot,flexShrink:0}}/>
           <span style={{color:C.text,fontSize:13.5,fontWeight:600}}>Truthifi · 401k / ESOP</span>
         </div>
-        <span className="rounded-md px-2 py-0.5" style={{background:"#F9EDF5",color:"#A03070",fontSize:10.5,fontWeight:700,letterSpacing:"0.08em"}}>
-          CLAUDE SYNCED
-        </span>
+        <div className="flex gap-2">
+          <button onClick={()=>onConnect(user,"truthifi")} disabled={st?.loading}
+            className="rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5"
+            style={{background:st?.connected?C.panel2:C.go,color:st?.connected?C.sub:C.btnText,fontSize:12,fontWeight:600,border:C.border}}>
+            <Icon name="link" size={12}/>{st?.connected?"Re-auth":"Connect"}
+          </button>
+          <button onClick={()=>onLoad(user,"truthifi")} disabled={!st?.connected||st?.loading}
+            className="rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5"
+            style={{background:C.panel,color:st?.connected?C.text:C.muted,fontSize:12,fontWeight:600,border:C.border}}>
+            <Icon name="refresh" size={12}/>Load
+          </button>
+        </div>
       </div>
-      <div className="mt-1.5" style={{color:C.sub,fontSize:11.5}}>
-        {count
-          ? <>{count} holdings · {cr(total)} · synced {timeAgo(st?.cachedAt)}</>
-          : "No data yet — ask Claude to sync Truthifi"}
+      <div className="mt-1.5" style={{color:st?.error?C.neg:C.sub,fontSize:11.5}}>{status}</div>
+      <div className="mt-1.5 flex items-center gap-1.5" style={{color:C.amber,fontSize:10.5}}>
+        <Icon name="alert" size={11} color={C.amber}/>
+        Rate limited · 5 calls/day · 25/month — Load only when needed
+        {st?.usdInr && <span style={{color:C.muted,marginLeft:6}}>· 1 USD = ₹{st.usdInr} at last sync</span>}
       </div>
-      {st?.usdInr && <div style={{color:C.muted,fontSize:10.5,marginTop:2}}>1 USD = ₹{st.usdInr} at time of sync</div>}
     </Panel>
   );
 }
@@ -698,7 +712,7 @@ function UserDashboard({uid, uLabel, brokers, onConnect, onLoad, onCall}){
       {/* Broker cards */}
       <div className="grid sm:grid-cols-2 gap-3">
         {(USER_BROKERS[uid]||[]).map(k=>{
-          if(k==="truthifi") return <TruthifiCard key={k} st={brokers?.[k]}/>;
+          if(k==="truthifi") return <TruthifiCard key={k} user={uid} st={brokers?.[k]} onConnect={onConnect} onLoad={onLoad}/>;
           const label = BROKERS.find(([bk])=>bk===k)?.[1]||k;
           return <BrokerCard key={k} user={uid} brokerKey={k} label={label} st={brokers?.[k]}
             onConnect={onConnect} onLoad={onLoad}/>;
@@ -748,7 +762,7 @@ function App(){
     for(const [uid, uData] of Object.entries(s.users||{})){
       if(!next[uid]) next[uid]={brokers:{}};
       for(const [broker, info] of Object.entries(uData.brokers||{})){
-        next[uid].brokers[broker]={connected:info.connected,authed:info.authed,tools:info.tools,loginUrl:info.loginUrl};
+        next[uid].brokers[broker]={connected:info.connected,authed:info.authed,tools:info.tools,loginUrl:info.loginUrl,usdInr:info.usdInr||null};
         if(info.cachedHoldings?.length){
           next[uid].brokers[broker].holdings=info.cachedHoldings;
           next[uid].brokers[broker].fromCache=true;

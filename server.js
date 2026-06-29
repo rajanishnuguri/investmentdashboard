@@ -40,9 +40,9 @@ const BROKERS = {
     url: process.env.INDMONEY_MCP_URL || "https://mcp.indmoney.com/mcp",
   },
   truthifi: {
-    label: "Truthifi (401k / ESOP)",
-    url: null,       // fetched via Claude MCP, not server-side — cache only
-    claudeSync: true,
+    label: "Truthifi · 401k / ESOP",
+    url: process.env.TRUTHIFI_MCP_URL || "https://api.truthifi.com/mcp",
+    // Rate limited: ~5 calls/day, 25/month. Connect once; data is cached after Load.
   },
 };
 
@@ -115,32 +115,19 @@ app.get("/api/status", wrap(async (_req, res) => {
     for (const broker of (USER_BROKERS[user] || [])) {
       const bCfg = BROKERS[broker];
       const cached = cache[user]?.[broker];
-      if (bCfg.claudeSync) {
-        // Truthifi — served from cache only, no live MCP session
-        out[user].brokers[broker] = {
-          label: bCfg.label,
-          claudeSync: true,
-          connected: false,
-          authed: false,
-          tools: [],
-          loginUrl: null,
-          cachedHoldings: cached?.holdings || null,
-          cachedAt: cached?.savedAt || null,
-          usdInr: cached?.usdInr || null,
-        };
-      } else {
-        const key = `${user}::${broker}`;
-        const s = sessions.get(key);
-        out[user].brokers[broker] = {
-          label: bCfg.label,
-          connected: !!s?.connected,
-          authed: !!s?.authed,
-          tools: s?.tools?.map((t) => t.name) || [],
-          loginUrl: s?.loginUrl || null,
-          cachedHoldings: cached?.holdings || null,
-          cachedAt: cached?.savedAt || null,
-        };
-      }
+      const key = `${user}::${broker}`;
+      const s = sessions.get(key);
+      out[user].brokers[broker] = {
+        label: bCfg.label,
+        connected: !!s?.connected,
+        authed: !!s?.authed,
+        tools: s?.tools?.map((t) => t.name) || [],
+        loginUrl: s?.loginUrl || null,
+        cachedHoldings: cached?.holdings || null,
+        cachedAt: cached?.savedAt || null,
+        usdInr: cached?.usdInr || null,
+        rateLimited: broker === "truthifi",
+      };
     }
   }
   res.json({ users: out });
@@ -159,6 +146,7 @@ app.post("/api/:user/:broker/connect", wrap(async (req, res) => {
   } catch (e) {
     if (!String(e?.message).includes("invalid_token") &&
         !String(e?.message).includes("Authentication required") &&
+        !String(e?.message).includes("Access token required") &&
         !String(e?.message).includes("No login")) throw e;
   }
 

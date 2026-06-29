@@ -362,16 +362,19 @@ function BrokerCard({
   }, status));
 }
 
-/* ─── Truthifi (Claude-synced) card ─── */
+/* ─── Truthifi broker card (rate-limited — shows warning) ─── */
 function TruthifiCard({
-  st
+  user,
+  st,
+  onConnect,
+  onLoad
 }) {
-  const count = st?.cachedHoldings?.length || 0;
-  const total = (st?.cachedHoldings || []).reduce((s, h) => s + (h.current || 0), 0);
+  const dot = st?.authed ? C.go : st?.connected ? C.amber : C.muted;
+  const status = st?.error ? st.error : st?.loading ? "Working…" : st?.authed ? `${st.holdings?.length || 0} holdings loaded` : st?.fromCache ? `${st.holdings?.length || 0} holdings · last session` : st?.connected ? "Connected — finish login, then Load" : "Not connected";
   return /*#__PURE__*/React.createElement(Panel, {
     className: "p-4",
     style: {
-      borderColor: "#F0D0E8"
+      borderColor: "#E8D0F0"
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
@@ -382,7 +385,7 @@ function TruthifiCard({
       width: 7,
       height: 7,
       borderRadius: 99,
-      background: count ? C.go : C.muted,
+      background: dot,
       flexShrink: 0
     }
   }), /*#__PURE__*/React.createElement("span", {
@@ -391,28 +394,58 @@ function TruthifiCard({
       fontSize: 13.5,
       fontWeight: 600
     }
-  }, "Truthifi · 401k / ESOP")), /*#__PURE__*/React.createElement("span", {
-    className: "rounded-md px-2 py-0.5",
+  }, "Truthifi · 401k / ESOP")), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => onConnect(user, "truthifi"),
+    disabled: st?.loading,
+    className: "rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5",
     style: {
-      background: "#F9EDF5",
-      color: "#A03070",
-      fontSize: 10.5,
-      fontWeight: 700,
-      letterSpacing: "0.08em"
+      background: st?.connected ? C.panel2 : C.go,
+      color: st?.connected ? C.sub : C.btnText,
+      fontSize: 12,
+      fontWeight: 600,
+      border: C.border
     }
-  }, "CLAUDE SYNCED")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "link",
+    size: 12
+  }), st?.connected ? "Re-auth" : "Connect"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => onLoad(user, "truthifi"),
+    disabled: !st?.connected || st?.loading,
+    className: "rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5",
+    style: {
+      background: C.panel,
+      color: st?.connected ? C.text : C.muted,
+      fontSize: 12,
+      fontWeight: 600,
+      border: C.border
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "refresh",
+    size: 12
+  }), "Load"))), /*#__PURE__*/React.createElement("div", {
     className: "mt-1.5",
     style: {
-      color: C.sub,
+      color: st?.error ? C.neg : C.sub,
       fontSize: 11.5
     }
-  }, count ? /*#__PURE__*/React.createElement(React.Fragment, null, count, " holdings · ", cr(total), " · synced ", timeAgo(st?.cachedAt)) : "No data yet — ask Claude to sync Truthifi"), st?.usdInr && /*#__PURE__*/React.createElement("div", {
+  }, status), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1.5 flex items-center gap-1.5",
+    style: {
+      color: C.amber,
+      fontSize: 10.5
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "alert",
+    size: 11,
+    color: C.amber
+  }), "Rate limited · 5 calls/day · 25/month — Load only when needed", st?.usdInr && /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.muted,
-      fontSize: 10.5,
-      marginTop: 2
+      marginLeft: 6
     }
-  }, "1 USD = ₹", st.usdInr, " at time of sync"));
+  }, "· 1 USD = ₹", st.usdInr, " at last sync")));
 }
 
 /* ─── Overview ─── */
@@ -1487,7 +1520,10 @@ function UserDashboard({
   }, (USER_BROKERS[uid] || []).map(k => {
     if (k === "truthifi") return /*#__PURE__*/React.createElement(TruthifiCard, {
       key: k,
-      st: brokers?.[k]
+      user: uid,
+      st: brokers?.[k],
+      onConnect: onConnect,
+      onLoad: onLoad
     });
     const label = BROKERS.find(([bk]) => bk === k)?.[1] || k;
     return /*#__PURE__*/React.createElement(BrokerCard, {
@@ -1583,7 +1619,8 @@ function App() {
             connected: info.connected,
             authed: info.authed,
             tools: info.tools,
-            loginUrl: info.loginUrl
+            loginUrl: info.loginUrl,
+            usdInr: info.usdInr || null
           };
           if (info.cachedHoldings?.length) {
             next[uid].brokers[broker].holdings = info.cachedHoldings;
