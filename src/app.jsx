@@ -637,6 +637,8 @@ function App(){
       const savedAt = r.savedAt || new Date().toISOString();
       patch(k,{authed:true,holdings:r.holdings||[],raw:r.raw||{},tools:r.tools||(brokers[k]?.tools||[]),loading:false,fromCache:!!r.fromCache});
       setRefreshedAt(savedAt);
+      // Auto-refresh prices from live market sources after loading
+      setTimeout(()=>refreshPrices(), 0);
     }catch(e){ patch(k,{loading:false,error:String(e.message||e)}); }
   }
 

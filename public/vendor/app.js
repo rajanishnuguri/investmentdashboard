@@ -1387,6 +1387,8 @@ function App() {
         fromCache: !!r.fromCache
       });
       setRefreshedAt(savedAt);
+      // Auto-refresh prices from live market sources after loading
+      setTimeout(() => refreshPrices(), 0);
     } catch (e) {
       patch(k, {
         loading: false,
