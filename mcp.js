@@ -297,12 +297,12 @@ const firstKey = (o, keys) => keys.find((k) => o[k] != null);
 function mapHolding(row) {
   if (!row || typeof row !== "object") return null;
   const symKey = firstKey(row, [
-    "tradingsymbol", "symbol", "ticker", "name", "scheme_name", "fund_name",
-    "scheme", "instrument", "stock_name",
+    "tradingsymbol", "symbol", "ticker", "investment", "name", "scheme_name",
+    "fund_name", "scheme", "instrument", "stock_name",
   ]);
   if (!symKey) return null;
 
-  const qty = num(row[firstKey(row, ["quantity", "qty", "units", "unit_count"]) ?? ""] ?? 0);
+  const qty = num(row[firstKey(row, ["quantity", "qty", "units", "total_units", "unit_count"]) ?? ""] ?? 0);
   const avg = num(row[firstKey(row, ["average_price", "avg_price", "avgPrice", "buy_price", "nav_buy", "avg_nav"]) ?? ""] ?? 0);
   const last = num(row[firstKey(row, ["last_price", "ltp", "current_price", "lastPrice", "nav", "current_nav", "unit_price"]) ?? ""] ?? 0);
 
@@ -313,7 +313,7 @@ function mapHolding(row) {
 
   let pnl = num(row[firstKey(row, ["pnl", "profit", "gain", "unrealised", "unrealized", "total_pnl", "absolute_pnl"]) ?? ""] ?? 0);
   if (!pnl && (current || invested)) pnl = current - invested;
-  const pnlPct = num(row[firstKey(row, ["pnl_percentage", "pnl_pct", "pnl_percent", "returns_pct", "xirr"]) ?? ""] ?? 0)
+  const pnlPct = num(row[firstKey(row, ["pnl_percentage", "pnl_pct", "pnl_percent", "pnl_per", "returns_pct", "xirr"]) ?? ""] ?? 0)
     || (invested ? (pnl / invested) * 100 : null);
 
   return {
