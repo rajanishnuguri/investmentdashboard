@@ -212,6 +212,93 @@ app.post("/api/:broker/tool", wrap(async (req, res) => {
   res.json(out);
 }));
 
+// ---- MF live NAV refresh via mfapi.in (free, no auth) ----
+// Maps investment_code → AMFI scheme code (in-memory, cleared on restart)
+const mfCodeMap = new Map();
+const mfNavCache = new Map(); // amfiCode → { nav, date }
+
+async function fetchMfNav(investmentCode, fundName) {
+  const today = new Date().toDateString();
+  let amfi = mfCodeMap.get(investmentCode);
+
+  if (!amfi) {
+    // Try treating investment_code as the AMFI scheme code directly
+    try {
+      const r = await fetch(`https://api.mfapi.in/mf/${investmentCode}`);
+      if (r.ok) {
+        const d = await r.json();
+        if (d.data?.[0]?.nav) { amfi = investmentCode; mfCodeMap.set(investmentCode, amfi); }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!amfi && fundName) {
+    // Search by the first 5 words of the fund name
+    try {
+      const q = encodeURIComponent(fundName.split(" ").slice(0, 5).join(" "));
+      const r = await fetch(`https://api.mfapi.in/mf/search?q=${q}`);
+      if (r.ok) {
+        const results = await r.json();
+        if (results?.[0]?.schemeCode) {
+          amfi = String(results[0].schemeCode);
+          mfCodeMap.set(investmentCode, amfi);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!amfi) return null;
+
+  const cached = mfNavCache.get(amfi);
+  if (cached?.date === today) return cached.nav;
+
+  try {
+    const r = await fetch(`https://api.mfapi.in/mf/${amfi}`);
+    if (r.ok) {
+      const d = await r.json();
+      if (d.data?.[0]?.nav) {
+        const nav = parseFloat(d.data[0].nav);
+        mfNavCache.set(amfi, { nav, date: today });
+        return nav;
+      }
+    }
+  } catch { /* ignore */ }
+
+  return null;
+}
+
+// Refresh MF NAVs from mfapi.in without requiring broker re-authentication.
+app.post("/api/prices/refresh", wrap(async (req, res) => {
+  const cache = loadCache();
+  let updated = 0;
+
+  for (const brokerData of Object.values(cache)) {
+    if (!Array.isArray(brokerData.holdings)) continue;
+    for (const h of brokerData.holdings) {
+      if (h.assetType !== "MF" || !h.quantity) continue;
+      const nav = await fetchMfNav(h.investmentCode, h.symbol);
+      if (nav == null) continue;
+      h.unitPrice = nav;
+      h.current = h.quantity * nav;
+      const pnl = h.current - (h.invested || 0);
+      h.pnl = pnl;
+      h.absoluteReturn = pnl;
+      h.absoluteReturnPct = h.invested ? (pnl / h.invested) * 100 : null;
+      h.pnlPct = h.absoluteReturnPct;
+      updated++;
+    }
+  }
+
+  if (updated > 0) {
+    const refreshedAt = new Date().toISOString();
+    for (const brokerData of Object.values(cache)) brokerData.savedAt = refreshedAt;
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  }
+
+  const allHoldings = Object.values(cache).flatMap(b => b.holdings || []);
+  res.json({ updated, refreshedAt: new Date().toISOString(), holdings: allHoldings });
+}));
+
 app.post("/api/:broker/disconnect", wrap(async (req, res) => {
   const s = sessions.get(req.params.broker);
   if (s) await s.close();

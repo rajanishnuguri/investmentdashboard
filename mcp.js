@@ -346,6 +346,8 @@ function mapHolding(row) {
     exchange:     row.exchange || row.exchange_segment || row.segment || row.asset_type || "",
     assetType,
     broker:       row.broker || "",
+    investmentCode: row.investment_code != null ? String(row.investment_code) : null,
+    unitPrice:    last || null,
     quantity:     qty || null,
     invested:     invested || null,
     current:      current || (invested + pnl) || null,
