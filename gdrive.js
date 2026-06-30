@@ -1,45 +1,29 @@
 // gdrive.js
-// Read and write the portfolio cache JSON to a specific Google Drive file.
-// Auth: service account key supplied via GOOGLE_SERVICE_ACCOUNT_KEY env var
-// (the full JSON content of the downloaded key file, or base64-encoded).
+// Read: direct public download URL (no auth needed for public files)
+// Write: Google Apps Script web app URL (deployed as "anyone can access")
 //
-// The Drive file must be shared with the service account's email address
-// (at least "Editor" access).
+// Set these env vars:
+//   GDRIVE_FILE_ID      — file ID from your Drive share link
+//   GDRIVE_WRITE_URL    — your deployed Apps Script web app URL
 
-import { google } from "googleapis";
-import { Readable } from "stream";
+const FILE_ID   = process.env.GDRIVE_FILE_ID    || "1DlNUOrRTMMLxk6XJ90okYY7-FOEK6UQf";
+const WRITE_URL = process.env.GDRIVE_WRITE_URL  || "";
 
-const FILE_ID = process.env.GDRIVE_FILE_ID || "1DlNUOrRTMMLxk6XJ90okYY7-FOEK6UQf";
-
-function getAuth() {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-  if (!raw) return null;
-  try {
-    // Accept raw JSON or base64-encoded JSON
-    const json = raw.startsWith("{") ? raw : Buffer.from(raw, "base64").toString("utf8");
-    const key = JSON.parse(json);
-    return new google.auth.GoogleAuth({
-      credentials: key,
-      scopes: ["https://www.googleapis.com/auth/drive.file"],
-    });
-  } catch (e) {
-    console.error("[gdrive] Failed to parse service account key:", e.message);
-    return null;
-  }
-}
-
-// Download the cache file from Drive. Returns parsed JSON or null.
+// Download the JSON cache from Google Drive (public file, no auth).
 export async function loadFromDrive() {
-  const auth = getAuth();
-  if (!auth) return null;
   try {
-    const drive = google.drive({ version: "v3", auth });
-    const res = await drive.files.get(
-      { fileId: FILE_ID, alt: "media" },
-      { responseType: "text" }
-    );
-    const data = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
-    console.log("[gdrive] Loaded cache from Drive");
+    const url = `https://drive.google.com/uc?export=download&id=${FILE_ID}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    // Google sometimes returns an HTML virus-scan warning for large files;
+    // detect it and bail gracefully.
+    if (text.trimStart().startsWith("<")) {
+      console.warn("[gdrive] Got HTML instead of JSON — file may need a direct download confirmation");
+      return null;
+    }
+    const data = JSON.parse(text);
+    console.log("[gdrive] Cache loaded from Drive ✓");
     return data;
   } catch (e) {
     console.error("[gdrive] Load failed:", e.message);
@@ -47,19 +31,17 @@ export async function loadFromDrive() {
   }
 }
 
-// Upload the cache JSON to Drive (overwrites the existing file).
+// Push the cache JSON to Drive via a Google Apps Script web app.
 export async function saveToDrive(data) {
-  const auth = getAuth();
-  if (!auth) return;
+  if (!WRITE_URL) return; // write URL not configured — skip silently
   try {
-    const drive = google.drive({ version: "v3", auth });
-    const body = JSON.stringify(data, null, 2);
-    const stream = Readable.from([body]);
-    await drive.files.update({
-      fileId: FILE_ID,
-      media: { mimeType: "application/json", body: stream },
+    const r = await fetch(WRITE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
     });
-    console.log("[gdrive] Cache saved to Drive");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    console.log("[gdrive] Cache saved to Drive ✓");
   } catch (e) {
     console.error("[gdrive] Save failed:", e.message);
   }
