@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import { BrokerSession } from "./mcp.js";
 import { beginOAuth, completeOAuth } from "./oauth.js";
+import { loadFromDrive, saveToDrive } from "./gdrive.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +69,8 @@ function saveCache(user, broker, data) {
   if (!cache[user]) cache[user] = {};
   cache[user][broker] = { ...data, savedAt: new Date().toISOString() };
   fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  // Async sync to Google Drive — don't await, never blocks the response.
+  saveToDrive(cache).catch(() => {});
 }
 
 function getSession(user, broker) {
@@ -258,10 +261,24 @@ app.post("/api/:user/:broker/disconnect", wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`\n  Wealth Trajectory running →  http://localhost:${PORT}\n`);
   console.log("  Users: " + Object.values(USERS).map(u => u.label).join(", "));
   console.log("  Brokers: " + Object.keys(BROKERS).join(", "));
+
+  // On startup: if local cache is missing or empty, pull from Google Drive.
+  const local = loadCache();
+  const hasData = Object.keys(local).some(k => ["rajanish","aswini"].includes(k));
+  if (!hasData) {
+    console.log("  Local cache empty — fetching from Google Drive...");
+    const remote = await loadFromDrive();
+    if (remote) {
+      fs.writeFileSync(CACHE_FILE, JSON.stringify(remote, null, 2));
+      console.log("  Cache restored from Drive ✓");
+    }
+  } else {
+    console.log("  Local cache found — skipping Drive fetch.");
+  }
   console.log("");
 });
 
