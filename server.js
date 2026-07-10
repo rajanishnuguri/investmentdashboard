@@ -1,4 +1,5 @@
 // server.js
+import "./env.js";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -67,9 +68,19 @@ function loadCache() {
 function saveCache(user, broker, data) {
   const cache = loadCache();
   if (!cache[user]) cache[user] = {};
+
+  // Never let an empty fetch clobber holdings we already have cached for this
+  // broker — only overwrite when the new fetch actually returned something.
+  const hasNewHoldings = Array.isArray(data.holdings) && data.holdings.length > 0;
+  const hasExistingHoldings = Array.isArray(cache[user][broker]?.holdings) && cache[user][broker].holdings.length > 0;
+  if (!hasNewHoldings && hasExistingHoldings) return;
+
   cache[user][broker] = { ...data, savedAt: new Date().toISOString() };
   fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
   // Async sync to Google Drive — don't await, never blocks the response.
+  // Pushes the full cache (all users/brokers), but only this broker's slice
+  // just changed — everything else is untouched, so the remote file still
+  // ends up as an accurate full snapshot of exactly what's cached locally.
   saveToDrive(cache).catch(() => {});
 }
 

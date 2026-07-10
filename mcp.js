@@ -204,8 +204,12 @@ export class BrokerSession {
     // If tools were unavailable at connect time (auth-gated), retry now —
     // the user may have just completed OAuth in the browser.
     if (this.tools.length === 0) await this.refreshToolsAfterAuth();
-    // Still no tools after retry — auth is required; signal cache fallback.
-    if (this.tools.length === 0 && this.listToolsError) {
+    // Still no tools after retry — treat as needing re-auth and fall back to
+    // cache, even if the server didn't throw an explicit error. Some brokers
+    // (e.g. Truthifi under its daily rate limit) return an empty tool list
+    // instead of erroring, and a silent empty success would overwrite good
+    // cached holdings with nothing.
+    if (this.tools.length === 0) {
       const err = new Error("LOGIN_REQUIRED");
       throw err;
     }
