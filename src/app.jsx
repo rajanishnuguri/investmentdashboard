@@ -3,27 +3,41 @@ const { ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
         LineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceDot,
         BarChart, Bar } = Recharts;
 
+// Dark, glass, "futuristic fintech" palette — inspired by CRED's neon-on-black
+// cards and Apple's high-contrast, generous-whitespace product pages.
 const C = {
-  bg:"#F0F4FA", panel:"#FFFFFF", panel2:"#EEF2F8", line:"#E2E8F1",
-  text:"#13203A", sub:"#5A6884", muted:"#94A1B8",
-  go:"#0E9E86", goSoft:"#E2F4F0", goInk:"#06463B",
-  amber:"#C77E0A", neg:"#DC4B5C", pos:"#0E9E86", btnText:"#FFFFFF",
-  border:"1px solid #E2E8F1",
-  rajanish:"#2A8FD6", aswini:"#7C6BE0",
+  bg:"#06070C",
+  panel:"linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.02))",
+  panel2:"rgba(255,255,255,0.07)",
+  panelSolid:"#12141C",
+  line:"rgba(255,255,255,0.09)",
+  text:"#F3F5FA",
+  sub:"#9AA3B9",
+  muted:"#7A84A0",
+  go:"#00E5A8",
+  goSoft:"rgba(0,229,168,0.14)",
+  goInk:"#04150F",
+  amber:"#FFB648",
+  neg:"#FF6178",
+  pos:"#00E5A8",
+  btnText:"#04150F",
+  border:"1px solid rgba(255,255,255,0.09)",
+  rajanish:"#4FA8FF",
+  aswini:"#B497FF",
 };
-const PIE = ["#2A8FD6","#0FB39A","#7C6BE0","#E0A310","#5566E0","#E0566B","#8492A8","#C77E0A","#19B7A6","#9B8CFF"];
+const PIE = ["#4FA8FF","#00E5A8","#B497FF","#FFC24E","#6E86FF","#FF6E8E","#8DA0C4","#FFB648","#31D6C4","#C9B8FF"];
 
 const USERS = [["rajanish","Rajanish"],["aswini","Aswini"]];
 const BROKERS = [["kite","Zerodha · Kite"],["indmoney","INDmoney"]];
 const USER_BROKERS = { rajanish: ["kite","indmoney"], aswini: ["kite","indmoney","truthifi"] };
 
 const ASSET_GROUPS = [
-  { key:"eq",    label:"Indian Equities",   color:"#2A8FD6", match: h => !["MF","US_STOCK","EPF","PPF","NPS","BOND","US_401K"].includes(h.assetType) && (h.exchange==="NSE"||h.exchange==="BSE"||(!h.assetType&&h.exchange)) },
-  { key:"mf",    label:"Mutual Funds",      color:"#0FB39A", match: h => h.assetType==="MF" },
-  { key:"us",    label:"US Stocks & ETFs",  color:"#7C6BE0", match: h => h.assetType==="US_STOCK" },
-  { key:"fixed", label:"EPF / PPF / NPS",   color:"#E0A310", match: h => ["EPF","PPF","NPS"].includes(h.assetType) },
-  { key:"bond",  label:"Bonds",             color:"#5566E0", match: h => h.assetType==="BOND" },
-  { key:"ret",   label:"401k / ESOP (USD)", color:"#E05699", match: h => h.assetType==="US_401K" },
+  { key:"eq",    label:"Indian Equities",   color:"#4FA8FF", match: h => !["MF","US_STOCK","EPF","PPF","NPS","BOND","US_401K"].includes(h.assetType) && (h.exchange==="NSE"||h.exchange==="BSE"||(!h.assetType&&h.exchange)) },
+  { key:"mf",    label:"Mutual Funds",      color:"#00E5A8", match: h => h.assetType==="MF" },
+  { key:"us",    label:"US Stocks & ETFs",  color:"#B497FF", match: h => h.assetType==="US_STOCK" },
+  { key:"fixed", label:"EPF / PPF / NPS",   color:"#FFC24E", match: h => ["EPF","PPF","NPS"].includes(h.assetType) },
+  { key:"bond",  label:"Bonds",             color:"#6E86FF", match: h => h.assetType==="BOND" },
+  { key:"ret",   label:"401k / ESOP (USD)", color:"#FF6E9E", match: h => h.assetType==="US_401K" },
 ];
 function classifyHolding(h) {
   return ASSET_GROUPS.find(g => g.match(h)) || { key:"other", label:"Other", color:"#8492A8" };
@@ -106,28 +120,54 @@ function project(a){
   return { rows, fiYear, todayFI:a.annualExpensesToday/swr };
 }
 
+/* ─── Ambient background — soft blurred glow blobs, pure CSS ─── */
+function AmbientGlow(){
+  return (
+    <div style={{position:"fixed",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
+      <div style={{position:"absolute",top:"-18%",left:"-12%",width:520,height:520,borderRadius:"50%",
+        background:"radial-gradient(circle, rgba(0,229,168,0.20), transparent 70%)",filter:"blur(70px)"}}/>
+      <div style={{position:"absolute",bottom:"-22%",right:"-14%",width:600,height:600,borderRadius:"50%",
+        background:"radial-gradient(circle, rgba(79,168,255,0.16), transparent 70%)",filter:"blur(80px)"}}/>
+      <div style={{position:"absolute",top:"22%",right:"8%",width:380,height:380,borderRadius:"50%",
+        background:"radial-gradient(circle, rgba(180,151,255,0.14), transparent 70%)",filter:"blur(70px)"}}/>
+    </div>
+  );
+}
+
 function Panel({children, style, className=""}){
-  return <div className={"rounded-2xl "+className}
-    style={{background:C.panel, border:C.border, boxShadow:"0 1px 3px rgba(19,32,58,0.05)", ...style}}>{children}</div>;
+  return <div className={"rounded-3xl "+className}
+    style={{
+      background:C.panel, border:C.border,
+      boxShadow:"0 1px 0 rgba(255,255,255,0.06) inset, 0 20px 44px -24px rgba(0,0,0,0.65)",
+      backdropFilter:"blur(18px)", WebkitBackdropFilter:"blur(18px)",
+      ...style,
+    }}>{children}</div>;
 }
 function Eyebrow({children, style}){
   return <div className="uppercase" style={{color:C.muted,fontSize:10.5,letterSpacing:"0.14em",fontWeight:700,...style}}>{children}</div>;
 }
 function Ring({frac,size=152}){
   const r=size/2-10, circ=2*Math.PI*r, f=Math.max(0,Math.min(1,frac||0));
+  const gid = "ringGrad";
   return (
-    <svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.panel2} strokeWidth={9}/>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.go} strokeWidth={9} strokeLinecap="round"
+    <svg width={size} height={size} style={{transform:"rotate(-90deg)",overflow:"visible"}}>
+      <defs>
+        <linearGradient id={gid} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={C.go}/>
+          <stop offset="100%" stopColor={C.rajanish}/>
+        </linearGradient>
+      </defs>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={9}/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={`url(#${gid})`} strokeWidth={9} strokeLinecap="round"
         strokeDasharray={circ} strokeDashoffset={circ*(1-f)}
-        style={{transition:"stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)"}}/>
+        style={{transition:"stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)",filter:"drop-shadow(0 0 10px rgba(0,229,168,0.45))"}}/>
     </svg>
   );
 }
 function ChartTip({active,payload,label,fmt}){
   if(!active||!payload||!payload.length) return null;
   return (
-    <div className="rounded-lg px-3 py-2" style={{background:C.panel,border:C.border,boxShadow:"0 4px 12px rgba(19,32,58,0.1)",fontSize:12}}>
+    <div className="rounded-xl px-3 py-2" style={{background:C.panelSolid,border:C.border,boxShadow:"0 12px 28px -12px rgba(0,0,0,0.7)",fontSize:12}}>
       {label!=null && <div style={{color:C.sub,marginBottom:4}}>{label}</div>}
       {payload.map((p,i)=>(
         <div key={i} className="font-mono flex items-center gap-2">
@@ -149,6 +189,11 @@ const api = {
   refreshFromDrive: ()=>fetch("/api/drive/refresh",{method:"POST"}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
 };
 
+function StatusDot({color, glow}){
+  return <span style={{width:7,height:7,borderRadius:99,background:color,flexShrink:0,
+    boxShadow:glow?`0 0 8px ${color}`:"none"}}/>;
+}
+
 function BrokerCard({user, brokerKey, label, st, onConnect, onLoad}){
   const dot = st?.authed ? C.go : st?.connected ? C.amber : C.muted;
   const status = st?.error ? st.error
@@ -159,20 +204,21 @@ function BrokerCard({user, brokerKey, label, st, onConnect, onLoad}){
     : "Not connected";
   return (
     <Panel className="p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span style={{width:7,height:7,borderRadius:99,background:dot,flexShrink:0}}/>
-          <span style={{color:C.text,fontSize:13.5,fontWeight:600}}>{label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <StatusDot color={dot} glow={st?.authed}/>
+          <span className="truncate" style={{color:C.text,fontSize:13.5,fontWeight:600}}>{label}</span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0">
           <button onClick={()=>onConnect(user,brokerKey)} disabled={st?.loading}
-            className="rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5"
-            style={{background:st?.connected?C.panel2:C.go,color:st?.connected?C.sub:C.btnText,fontSize:12,fontWeight:600,border:C.border}}>
+            className="rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5"
+            style={{background:st?.connected?C.panel2:C.go,color:st?.connected?C.sub:C.btnText,fontSize:12,fontWeight:700,border:C.border,
+              boxShadow:st?.connected?"none":"0 0 16px rgba(0,229,168,0.35)"}}>
             <Icon name="link" size={12}/>{st?.connected?"Re-auth":"Connect"}
           </button>
           <button onClick={()=>onLoad(user,brokerKey)} disabled={!st?.connected||st?.loading}
-            className="rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5"
-            style={{background:C.panel,color:st?.connected?C.text:C.muted,fontSize:12,fontWeight:600,border:C.border}}>
+            className="rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5"
+            style={{background:C.panel2,color:st?.connected?C.text:C.muted,fontSize:12,fontWeight:700,border:C.border}}>
             <Icon name="refresh" size={12}/>Load
           </button>
         </div>
@@ -192,30 +238,31 @@ function TruthifiCard({user, st, onConnect, onLoad}){
     : st?.connected ? "Connected — finish login, then Load"
     : "Not connected";
   return (
-    <Panel className="p-4" style={{borderColor:"#E8D0F0"}}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span style={{width:7,height:7,borderRadius:99,background:dot,flexShrink:0}}/>
-          <span style={{color:C.text,fontSize:13.5,fontWeight:600}}>Truthifi · 401k / ESOP</span>
+    <Panel className="p-4" style={{borderColor:"rgba(180,151,255,0.28)"}}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <StatusDot color={dot} glow={st?.authed}/>
+          <span className="truncate" style={{color:C.text,fontSize:13.5,fontWeight:600}}>Truthifi · 401k / ESOP</span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0">
           <button onClick={()=>onConnect(user,"truthifi")} disabled={st?.loading}
-            className="rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5"
-            style={{background:st?.connected?C.panel2:C.go,color:st?.connected?C.sub:C.btnText,fontSize:12,fontWeight:600,border:C.border}}>
+            className="rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5"
+            style={{background:st?.connected?C.panel2:C.go,color:st?.connected?C.sub:C.btnText,fontSize:12,fontWeight:700,border:C.border,
+              boxShadow:st?.connected?"none":"0 0 16px rgba(0,229,168,0.35)"}}>
             <Icon name="link" size={12}/>{st?.connected?"Re-auth":"Connect"}
           </button>
           <button onClick={()=>onLoad(user,"truthifi")} disabled={!st?.connected||st?.loading}
-            className="rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5"
-            style={{background:C.panel,color:st?.connected?C.text:C.muted,fontSize:12,fontWeight:600,border:C.border}}>
+            className="rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5"
+            style={{background:C.panel2,color:st?.connected?C.text:C.muted,fontSize:12,fontWeight:700,border:C.border}}>
             <Icon name="refresh" size={12}/>Load
           </button>
         </div>
       </div>
       <div className="mt-1.5" style={{color:st?.error?C.neg:C.sub,fontSize:11.5}}>{status}</div>
-      <div className="mt-1.5 flex items-center gap-1.5" style={{color:C.amber,fontSize:10.5}}>
+      <div className="mt-2 flex items-center gap-1.5 flex-wrap" style={{color:C.amber,fontSize:10.5}}>
         <Icon name="alert" size={11} color={C.amber}/>
         Rate limited · 5 calls/day · 25/month — Load only when needed
-        {st?.usdInr && <span style={{color:C.muted,marginLeft:6}}>· 1 USD = ₹{st.usdInr} at last sync</span>}
+        {st?.usdInr && <span style={{color:C.muted}}>· 1 USD = ₹{st.usdInr} at last sync</span>}
       </div>
     </Panel>
   );
@@ -225,7 +272,6 @@ function TruthifiCard({user, st, onConnect, onLoad}){
 function Overview({total, allHoldings, a, proj, go}){
   const frac = proj.todayFI ? Math.min(1, total.current/proj.todayFI) : 0;
   const gainPct = total.invested ? (total.pnl/total.invested)*100 : 0;
-  const totalRetPct = total.invested ? (total.totalReturn/total.invested)*100 : 0;
 
   const byClass = useMemo(()=>{
     const m = {};
@@ -243,21 +289,21 @@ function Overview({total, allHoldings, a, proj, go}){
 
   return (
     <div className="space-y-4">
-      <Panel className="p-6" style={{background:"linear-gradient(135deg,#FFFFFF 0%,#EEF5FF 100%)"}}>
-        <div className="flex flex-col md:flex-row md:items-center gap-6">
-          <div className="relative flex items-center justify-center" style={{width:152,height:152,flexShrink:0}}>
+      <Panel className="p-6 sm:p-7">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+          <div className="relative flex items-center justify-center mx-auto sm:mx-0" style={{width:152,height:152,flexShrink:0}}>
             <Ring frac={frac}/>
             <div className="absolute text-center">
-              <div className="font-mono" style={{color:C.go,fontSize:26,fontWeight:700,lineHeight:1}}>{Math.round(frac*100)}%</div>
+              <div className="font-mono" style={{color:C.text,fontSize:26,fontWeight:700,lineHeight:1}}>{Math.round(frac*100)}%</div>
               <div style={{color:C.muted,fontSize:10}}>to FI</div>
             </div>
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 text-center sm:text-left">
             <Eyebrow>Total net worth</Eyebrow>
-            <div className="mt-1 font-mono" style={{color:C.text,fontSize:42,fontWeight:700,letterSpacing:"-0.02em",lineHeight:1.1}}>
+            <div className="mt-1 font-mono" style={{color:C.text,fontSize:38,fontWeight:700,letterSpacing:"-0.02em",lineHeight:1.1}}>
               {total.current?cr(total.current):"—"}
             </div>
-            <div className="mt-3 flex flex-wrap gap-5">
+            <div className="mt-3 flex flex-wrap justify-center sm:justify-start gap-5">
               <div>
                 <div style={{color:C.muted,fontSize:11}}>Invested</div>
                 <div className="font-mono" style={{color:C.text,fontSize:15,fontWeight:600}}>{total.invested?cr(total.invested):"—"}</div>
@@ -274,8 +320,8 @@ function Overview({total, allHoldings, a, proj, go}){
               </div>}
             </div>
             {go && (
-              <button onClick={()=>go("trajectory")} className="mt-4 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2"
-                style={{background:C.go,color:C.btnText,fontWeight:600,fontSize:12.5}}>
+              <button onClick={()=>go("trajectory")} className="mt-4 inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2"
+                style={{background:C.go,color:C.btnText,fontWeight:700,fontSize:12.5,boxShadow:"0 0 20px rgba(0,229,168,0.4)"}}>
                 <Icon name="rocket" size={14}/> Trajectory {proj.fiYear!=null&&<span style={{opacity:0.85}}>· FI at age {a.currentAge+proj.fiYear}</span>} <Icon name="chevron" size={14}/>
               </button>
             )}
@@ -292,19 +338,20 @@ function Overview({total, allHoldings, a, proj, go}){
               const gp = g.invested ? (g.pnl/g.invested)*100 : 0;
               return (
                 <div key={g.key}>
-                  <div className="flex items-center justify-between mb-1" style={{fontSize:12}}>
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between mb-1 gap-2" style={{fontSize:12}}>
+                    <div className="flex items-center gap-2 min-w-0">
                       <span style={{width:8,height:8,borderRadius:2,background:g.color,flexShrink:0}}/>
-                      <span style={{color:C.text,fontWeight:600}}>{g.label}</span>
-                      <span style={{color:C.muted}}>{w.toFixed(1)}%</span>
+                      <span className="truncate" style={{color:C.text,fontWeight:600}}>{g.label}</span>
+                      <span className="flex-shrink-0" style={{color:C.muted}}>{w.toFixed(1)}%</span>
                     </div>
-                    <div className="flex items-center gap-3 font-mono">
+                    <div className="flex items-center gap-3 font-mono flex-shrink-0">
                       <span style={{color:C.text}}>{cr(g.current)}</span>
                       <span style={{color:gp>=0?C.pos:C.neg,minWidth:52,textAlign:"right"}}>{pct(gp)}</span>
                     </div>
                   </div>
-                  <div style={{height:5,borderRadius:99,background:C.panel2,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${w}%`,background:g.color,borderRadius:99,transition:"width 0.8s ease"}}/>
+                  <div style={{height:5,borderRadius:99,background:"rgba(255,255,255,0.07)",overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${w}%`,background:g.color,borderRadius:99,transition:"width 0.8s ease",
+                      boxShadow:`0 0 8px ${g.color}`}}/>
                   </div>
                 </div>
               );
@@ -327,38 +374,26 @@ function HoldingGroup({group, holdings}){
   const gPct = total.invested ? (total.pnl/total.invested)*100 : 0;
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{border:C.border}}>
-      <button onClick={()=>setOpen(o=>!o)} className="w-full flex items-center justify-between px-4 py-3"
+    <div className="rounded-3xl overflow-hidden" style={{border:C.border, background:C.panelSolid}}>
+      <button onClick={()=>setOpen(o=>!o)} className="w-full flex items-center justify-between gap-2 px-4 py-3.5"
         style={{background:C.panel2,borderBottom:open?C.border:"none"}}>
-        <div className="flex items-center gap-2.5">
-          <span style={{width:8,height:8,borderRadius:2,background:group.color}}/>
-          <span style={{color:C.text,fontWeight:700,fontSize:13}}>{group.label}</span>
-          <span style={{color:C.muted,fontSize:12}}>{holdings.length} holding{holdings.length!==1?"s":""}</span>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span style={{width:8,height:8,borderRadius:2,background:group.color,flexShrink:0,boxShadow:`0 0 6px ${group.color}`}}/>
+          <span className="truncate" style={{color:C.text,fontWeight:700,fontSize:13}}>{group.label}</span>
+          <span className="flex-shrink-0" style={{color:C.muted,fontSize:12}}>{holdings.length}</span>
         </div>
-        <div className="flex items-center gap-4 font-mono">
+        <div className="flex items-center gap-3 font-mono flex-shrink-0">
           <div className="text-right">
             <div style={{color:C.text,fontSize:13,fontWeight:600}}>{cr(total.current)}</div>
-            <div style={{color:gPct>=0?C.pos:C.neg,fontSize:11}}>{pct(gPct)} · {total.pnl>=0?"+":""}{cr(total.pnl)}</div>
+            <div style={{color:gPct>=0?C.pos:C.neg,fontSize:11}}>{pct(gPct)}</div>
           </div>
-          <Icon name="chevron" size={14} color={C.muted} style={{transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s"}}/>
+          <Icon name="chevron" size={14} color={C.muted} style={{transform:open?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",flexShrink:0}}/>
         </div>
       </button>
 
       {open && (
-        <div style={{background:C.panel}}>
-          <div className="grid px-4 py-2" style={{gridTemplateColumns:"1fr auto auto auto",gap:16,borderBottom:C.border}}>
-            <span style={{color:C.muted,fontSize:10.5,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase"}}>Name</span>
-            <span style={{color:C.muted,fontSize:10.5,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",textAlign:"right",minWidth:90}}>Invested</span>
-            <span style={{color:C.muted,fontSize:10.5,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",textAlign:"right",minWidth:90}}>Current</span>
-            <span style={{color:C.muted,fontSize:10.5,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",textAlign:"right",minWidth:80}}>Return</span>
-          </div>
+        <div>
           {holdings.map((h,i)=><HoldingRow key={i} h={h} last={i===holdings.length-1}/>)}
-          <div className="grid px-4 py-2.5" style={{gridTemplateColumns:"1fr auto auto auto",gap:16,background:C.panel2,borderTop:C.border}}>
-            <span style={{color:C.sub,fontSize:11.5,fontWeight:600}}>Total</span>
-            <span className="font-mono text-right" style={{color:C.sub,fontSize:11.5,minWidth:90}}>{cr(total.invested)}</span>
-            <span className="font-mono text-right" style={{color:C.text,fontSize:11.5,fontWeight:600,minWidth:90}}>{cr(total.current)}</span>
-            <span className="font-mono text-right" style={{color:gPct>=0?C.pos:C.neg,fontSize:11.5,fontWeight:600,minWidth:80}}>{pct(gPct)}</span>
-          </div>
         </div>
       )}
     </div>
@@ -370,35 +405,37 @@ function HoldingRow({h, last}){
   const up = (h.absoluteReturn||0) >= 0;
   const tone = up ? C.pos : C.neg;
   const retPct = h.absoluteReturnPct;
-  const subtitle = [h.broker, h.exchange, h.assetType && h.assetType!==h.exchange?h.assetType:null]
-    .filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(" · ");
-  const hasExtra = h.xirr!=null || h.cagr!=null || h.dividendEarned>0;
+  const metaBits = [h.broker, h.exchange, h.assetType && h.assetType!==h.exchange?h.assetType:null]
+    .filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
+  const unitsBit = (h.quantity!=null && h.unitPrice!=null)
+    ? `${h.quantity%1===0?h.quantity.toFixed(0):h.quantity.toFixed(4)} × ${inr(h.unitPrice)}`
+    : null;
+  const investedBit = h.invested ? `Inv. ${cr(h.invested)}` : null;
+  const subtitle = [...metaBits, unitsBit||investedBit].filter(Boolean).join(" · ");
+  const hasExtra = h.xirr!=null || h.cagr!=null || h.dividendEarned>0 || (unitsBit && h.invested);
 
   return (
     <div style={{borderBottom:last&&!exp?"none":C.border}}>
-      <button onClick={()=>hasExtra&&setExp(o=>!o)} className="w-full grid px-4 py-3 text-left"
-        style={{gridTemplateColumns:"1fr auto auto auto",gap:16,cursor:hasExtra?"pointer":"default"}}>
-        <div className="min-w-0">
+      <button onClick={()=>hasExtra&&setExp(o=>!o)} className="w-full flex items-start justify-between gap-3 px-4 py-3 text-left"
+        style={{cursor:hasExtra?"pointer":"default"}}>
+        <div className="min-w-0 flex-1">
           <div className="truncate" style={{color:C.text,fontSize:13,fontWeight:600}}>{h.symbol}</div>
-          {subtitle && <div style={{color:C.muted,fontSize:11,marginTop:1}}>{subtitle}</div>}
-          {h.quantity!=null && h.unitPrice!=null && (
-            <div style={{color:C.muted,fontSize:10.5,marginTop:1}}>
-              {h.quantity%1===0?h.quantity.toFixed(0):h.quantity.toFixed(4)} units × {inr(h.unitPrice)}
-            </div>
-          )}
+          {subtitle && <div className="truncate" style={{color:C.muted,fontSize:11,marginTop:2}}>{subtitle}</div>}
         </div>
-        <span className="font-mono text-right self-center" style={{color:C.sub,fontSize:12.5,minWidth:90}}>{h.invested?cr(h.invested):"—"}</span>
-        <span className="font-mono text-right self-center" style={{color:C.text,fontSize:13,fontWeight:600,minWidth:90}}>{h.current?cr(h.current):"—"}</span>
-        <div className="flex flex-col items-end self-center" style={{minWidth:80}}>
-          <span className="font-mono" style={{color:tone,fontSize:13,fontWeight:600}}>{retPct!=null?pct(retPct):"—"}</span>
-          {h.absoluteReturn!=null && <span className="font-mono" style={{color:tone,fontSize:10.5}}>{h.absoluteReturn>=0?"+":""}{cr(h.absoluteReturn)}</span>}
+        <div className="text-right flex-shrink-0" style={{minWidth:78}}>
+          <div className="font-mono" style={{color:C.text,fontSize:13,fontWeight:700}}>{h.current?cr(h.current):"—"}</div>
+          <div className="flex items-center justify-end gap-1 font-mono" style={{color:tone,fontSize:11}}>
+            <span>{retPct!=null?pct(retPct):"—"}</span>
+          </div>
         </div>
       </button>
       {exp && hasExtra && (
-        <div className="px-4 pb-3 flex flex-wrap gap-x-6 gap-y-1" style={{background:"#FAFBFE",borderTop:C.border}}>
-          {h.xirr!=null && <div><div style={{color:C.muted,fontSize:10}}>XIRR</div><div className="font-mono" style={{color:h.xirr>=0?C.pos:C.neg,fontSize:12,fontWeight:600}}>{pct(h.xirr)}</div></div>}
-          {h.cagr!=null && <div><div style={{color:C.muted,fontSize:10}}>CAGR</div><div className="font-mono" style={{color:h.cagr>=0?C.pos:C.neg,fontSize:12,fontWeight:600}}>{pct(h.cagr)}</div></div>}
-          {h.dividendEarned>0 && <div><div style={{color:C.muted,fontSize:10}}>Dividends</div><div className="font-mono" style={{color:C.pos,fontSize:12,fontWeight:600}}>{cr(h.dividendEarned)}</div></div>}
+        <div className="px-4 pb-3 flex flex-wrap gap-x-6 gap-y-2" style={{background:"rgba(255,255,255,0.02)",borderTop:C.border}}>
+          {unitsBit && h.invested && <div className="pt-2"><div style={{color:C.muted,fontSize:10}}>Invested</div><div className="font-mono" style={{color:C.sub,fontSize:12,fontWeight:600}}>{cr(h.invested)}</div></div>}
+          {h.xirr!=null && <div className="pt-2"><div style={{color:C.muted,fontSize:10}}>XIRR</div><div className="font-mono" style={{color:h.xirr>=0?C.pos:C.neg,fontSize:12,fontWeight:600}}>{pct(h.xirr)}</div></div>}
+          {h.cagr!=null && <div className="pt-2"><div style={{color:C.muted,fontSize:10}}>CAGR</div><div className="font-mono" style={{color:h.cagr>=0?C.pos:C.neg,fontSize:12,fontWeight:600}}>{pct(h.cagr)}</div></div>}
+          {h.dividendEarned>0 && <div className="pt-2"><div style={{color:C.muted,fontSize:10}}>Dividends</div><div className="font-mono" style={{color:C.pos,fontSize:12,fontWeight:600}}>{cr(h.dividendEarned)}</div></div>}
+          {h.absoluteReturn!=null && <div className="pt-2"><div style={{color:C.muted,fontSize:10}}>Gain</div><div className="font-mono" style={{color:tone,fontSize:12,fontWeight:600}}>{h.absoluteReturn>=0?"+":""}{cr(h.absoluteReturn)}</div></div>}
         </div>
       )}
     </div>
@@ -469,7 +506,7 @@ function Allocation({allHoldings}){
     const sorted=[...allHoldings].filter(h=>h.current>0).sort((a,b)=>b.current-a.current);
     const top=sorted.slice(0,9).map((h,i)=>({name:h.symbol,value:h.current,color:PIE[i%PIE.length]}));
     const rest=sorted.slice(9).reduce((s,h)=>s+h.current,0);
-    if(rest>0) top.push({name:"Other",value:rest,color:"#B8C2D4"});
+    if(rest>0) top.push({name:"Other",value:rest,color:"#8492A8"});
     return top;
   },[allHoldings]);
 
@@ -480,8 +517,8 @@ function Allocation({allHoldings}){
     <div className="space-y-4">
       <div className="flex gap-2">
         {[["class","By asset class"],["holding","By holding"]].map(([v,l])=>(
-          <button key={v} onClick={()=>setView(v)} className="rounded-lg px-3 py-1.5"
-            style={{fontSize:12.5,fontWeight:600,background:view===v?C.go:C.panel,color:view===v?C.btnText:C.sub,border:C.border}}>
+          <button key={v} onClick={()=>setView(v)} className="rounded-xl px-3 py-1.5"
+            style={{fontSize:12.5,fontWeight:600,background:view===v?C.go:C.panel2,color:view===v?C.btnText:C.sub,border:C.border}}>
             {l}
           </button>
         ))}
@@ -491,7 +528,7 @@ function Allocation({allHoldings}){
           <div style={{width:"100%",height:280}}>
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={data} dataKey="value" nameKey="name" innerRadius={68} outerRadius={110} paddingAngle={2} stroke="none">
+                <Pie data={data} dataKey="value" nameKey="name" innerRadius={68} outerRadius={110} paddingAngle={2} stroke="none" isAnimationActive={false}>
                   {data.map((x,i)=><Cell key={i} fill={x.color}/>)}
                 </Pie>
                 <Tooltip content={<ChartTip fmt={cr}/>}/>
@@ -512,7 +549,7 @@ function Allocation({allHoldings}){
                     <span className="font-mono" style={{color:C.text,fontSize:12.5,fontWeight:600}}>{cr(x.value)}</span>
                     <span className="font-mono" style={{color:C.muted,fontSize:11,minWidth:40,textAlign:"right"}}>{w.toFixed(1)}%</span>
                   </div>
-                  <div style={{height:4,borderRadius:99,background:C.panel2}}>
+                  <div style={{height:4,borderRadius:99,background:"rgba(255,255,255,0.07)"}}>
                     <div style={{height:"100%",width:`${w}%`,background:x.color,borderRadius:99,transition:"width 0.6s ease"}}/>
                   </div>
                 </div>
@@ -568,7 +605,7 @@ function Trajectory({a,setA,proj}){
                 <Tooltip content={<ChartTip fmt={cr}/>}/>
                 <Line type="monotone" dataKey="corpus" name="Corpus" stroke={C.go} strokeWidth={2.5} dot={false}/>
                 <Line type="monotone" dataKey="fiTarget" name="FI target" stroke={C.amber} strokeWidth={2} strokeDasharray="5 4" dot={false}/>
-                {fi && <ReferenceDot x={fi.age} y={fi.corpus} r={5} fill={C.go} stroke="#fff" strokeWidth={2}/>}
+                {fi && <ReferenceDot x={fi.age} y={fi.corpus} r={5} fill={C.go} stroke={C.bg} strokeWidth={2}/>}
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -599,7 +636,7 @@ function DataRoom({user, brokers, onCall}){
   }
   return (
     <div className="space-y-4">
-      <Panel className="p-4 flex gap-2" style={{borderColor:"#EAD9B0"}}>
+      <Panel className="p-4 flex gap-2" style={{borderColor:"rgba(255,182,72,0.3)"}}>
         <Icon name="alert" size={15} color={C.amber} style={{flexShrink:0,marginTop:1}}/>
         <span style={{color:C.sub,fontSize:12.5,lineHeight:1.6}}>
           Raw view of each broker's MCP tools. Call any tool to inspect the real field names.
@@ -616,7 +653,7 @@ function DataRoom({user, brokers, onCall}){
                 <div className="mt-3 flex flex-wrap gap-2">
                   {tools.length? tools.map(t=>(
                     <button key={t} onClick={()=>run(k,t)}
-                      className="rounded-lg px-3 py-1.5" style={{background:C.panel2,color:C.text,fontSize:12,fontWeight:600,border:C.border}}>
+                      className="rounded-xl px-3 py-1.5" style={{background:C.panel2,color:C.text,fontSize:12,fontWeight:600,border:C.border}}>
                       {t}
                     </button>
                   )) : <span style={{color:C.muted,fontSize:12.5}}>No tools reported.</span>}
@@ -628,7 +665,7 @@ function DataRoom({user, brokers, onCall}){
       {open && (
         <Panel className="p-5">
           <Eyebrow>Result · {open}</Eyebrow>
-          <pre className="mt-3 rounded-lg p-3 overflow-auto" style={{background:C.panel2,color:C.text,fontSize:12,maxHeight:400}}>
+          <pre className="mt-3 rounded-xl p-3 overflow-auto" style={{background:"#0A0B10",color:C.text,fontSize:12,maxHeight:400}}>
             {busy ? "Calling…" : JSON.stringify(result?.json ?? result?.text ?? result, null, 2)}
           </pre>
         </Panel>
@@ -667,7 +704,7 @@ function FamilyDashboard({usersState}){
       {/* Family summary strip */}
       <div className="grid sm:grid-cols-3 gap-3">
         {/* Combined */}
-        <Panel className="p-4 sm:col-span-1" style={{background:"linear-gradient(135deg,#FFFFFF 0%,#EEF5FF 100%)"}}>
+        <Panel className="p-4 sm:col-span-1" style={{background:"linear-gradient(135deg, rgba(0,229,168,0.14), rgba(79,168,255,0.08))"}}>
           <div className="flex items-center gap-2 mb-2">
             <Icon name="heart" size={14} color={C.go}/>
             <Eyebrow style={{margin:0}}>Family total</Eyebrow>
@@ -681,7 +718,7 @@ function FamilyDashboard({usersState}){
         {perUser.map(u=>(
           <Panel key={u.uid} className="p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span style={{width:8,height:8,borderRadius:99,background:C[u.uid]||C.go,flexShrink:0}}/>
+              <span style={{width:8,height:8,borderRadius:99,background:C[u.uid]||C.go,flexShrink:0,boxShadow:`0 0 6px ${C[u.uid]||C.go}`}}/>
               <Eyebrow style={{margin:0}}>{u.name}</Eyebrow>
             </div>
             <div className="font-mono" style={{color:C.text,fontSize:22,fontWeight:700,lineHeight:1}}>{u.total.current?cr(u.total.current):"—"}</div>
@@ -694,11 +731,11 @@ function FamilyDashboard({usersState}){
       </div>
 
       {/* Sub-nav */}
-      <nav className="flex gap-1 overflow-x-auto pb-1">
+      <nav className="no-scrollbar flex gap-1 overflow-x-auto pb-1">
         {NAV_FAM.map(([k,l,ic])=>(
-          <button key={k} onClick={()=>setTab(k)} className="flex items-center gap-1.5 rounded-lg px-3 py-2 whitespace-nowrap"
-            style={{fontSize:12.5,fontWeight:600,background:tab===k?C.panel:"transparent",
-              color:tab===k?C.text:C.sub,border:`1px solid ${tab===k?C.line:"transparent"}`}}>
+          <button key={k} onClick={()=>setTab(k)} className="flex items-center gap-1.5 rounded-xl px-3 py-2 whitespace-nowrap flex-shrink-0"
+            style={{fontSize:12.5,fontWeight:600,background:tab===k?C.panel2:"transparent",
+              color:tab===k?C.text:C.sub,border:`1px solid ${tab===k?"rgba(255,255,255,0.12)":"transparent"}`}}>
             <Icon name={ic} size={14} color={tab===k?C.go:C.muted}/>{l}
           </button>
         ))}
@@ -753,11 +790,11 @@ function UserDashboard({uid, uLabel, brokers, onConnect, onLoad, onCall}){
       </div>
 
       {/* Sub-nav */}
-      <nav className="flex gap-1 overflow-x-auto pb-1">
+      <nav className="no-scrollbar flex gap-1 overflow-x-auto pb-1">
         {USER_NAV.map(([k,l,ic])=>(
-          <button key={k} onClick={()=>setTab(k)} className="flex items-center gap-1.5 rounded-lg px-3 py-2 whitespace-nowrap"
-            style={{fontSize:12.5,fontWeight:600,background:tab===k?C.panel:"transparent",
-              color:tab===k?C.text:C.sub,border:`1px solid ${tab===k?C.line:"transparent"}`}}>
+          <button key={k} onClick={()=>setTab(k)} className="flex items-center gap-1.5 rounded-xl px-3 py-2 whitespace-nowrap flex-shrink-0"
+            style={{fontSize:12.5,fontWeight:600,background:tab===k?C.panel2:"transparent",
+              color:tab===k?C.text:C.sub,border:`1px solid ${tab===k?"rgba(255,255,255,0.12)":"transparent"}`}}>
             <Icon name={ic} size={14} color={tab===k?C.go:C.muted}/>{l}
           </button>
         ))}
@@ -860,53 +897,63 @@ function App(){
   ];
 
   return (
-    <div style={{background:C.bg,color:C.text,minHeight:"100vh"}}>
-      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-5">
+    <div style={{background:C.bg,color:C.text,minHeight:"100vh",position:"relative"}}>
+      <style>{`
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        .no-scrollbar::-webkit-scrollbar{display:none}
+        .no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}
+        input[type=range]{-webkit-appearance:none;background:rgba(255,255,255,0.09);border-radius:99px}
+        input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:99px;
+          background:${C.go};box-shadow:0 0 8px rgba(0,229,168,0.6);cursor:pointer}
+        input[type=range]::-moz-range-thumb{width:15px;height:15px;border:none;border-radius:99px;
+          background:${C.go};box-shadow:0 0 8px rgba(0,229,168,0.6);cursor:pointer}
+      `}</style>
+      <AmbientGlow/>
+      <div className="relative max-w-5xl mx-auto px-4 md:px-6 py-5" style={{zIndex:1}}>
 
         {/* Header */}
-        <header className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-lg flex items-center justify-center" style={{width:32,height:32,background:C.go}}>
-              <Icon name="rocket" size={17} color="#FFF"/>
+        <header className="flex items-center justify-between gap-3 mb-5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{width:34,height:34,background:C.go,boxShadow:"0 0 18px rgba(0,229,168,0.45)"}}>
+              <Icon name="rocket" size={17} color={C.btnText}/>
             </div>
-            <div>
-              <div style={{fontWeight:700,fontSize:15}}>Wealth Trajectory</div>
-              <div style={{color:C.muted,fontSize:11}}>your data · your server · no middleman</div>
+            <div className="min-w-0">
+              <div className="truncate" style={{fontWeight:700,fontSize:15}}>Wealth Trajectory</div>
+              <div className="truncate" style={{color:C.muted,fontSize:11}}>your data · your server · no middleman</div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:block text-right">
-              <div style={{color:C.muted,fontSize:10.5,textTransform:"uppercase",letterSpacing:"0.1em"}}>Family Net Worth</div>
-              <div className="font-mono" style={{color:C.go,fontSize:17,fontWeight:700}}>{familyTotal?cr(familyTotal):"—"}</div>
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="text-right">
+              <div style={{color:C.muted,fontSize:10,textTransform:"uppercase",letterSpacing:"0.1em"}}>Family</div>
+              <div className="font-mono" style={{color:C.go,fontSize:15,fontWeight:700}}>{familyTotal?cr(familyTotal):"—"}</div>
             </div>
             <button onClick={refreshFromDrive} disabled={driveRefreshing}
               title={driveError||"Refresh from Google Drive cache"}
-              className="rounded-lg p-2 flex items-center justify-center"
-              style={{background:C.panel,border:C.border,color:driveError?C.neg:C.sub,flexShrink:0}}>
+              className="rounded-xl p-2 flex items-center justify-center flex-shrink-0"
+              style={{background:C.panel2,border:C.border,color:driveError?C.neg:C.sub}}>
               <Icon name="refresh" size={15} style={driveRefreshing?{animation:"spin 1s linear infinite"}:{}}/>
             </button>
           </div>
         </header>
 
         {/* User tab selector */}
-        <div className="flex gap-2 mb-5">
+        <div className="grid grid-cols-3 gap-2 mb-5">
           {USER_TABS.map(([uid,label,color])=>{
             const active = userTab===uid;
             return (
               <button key={uid} onClick={()=>setUserTab(uid)}
-                className="flex items-center gap-2 rounded-xl px-4 py-2.5"
+                className="flex items-center justify-center gap-2 rounded-2xl px-3 py-2.5"
                 style={{
-                  fontWeight:700, fontSize:13.5,
-                  background: active ? (uid==="family"?"linear-gradient(90deg,"+C.rajanish+" 0%,"+C.aswini+" 100%)":color) : C.panel,
-                  color: active ? "#FFF" : C.sub,
+                  fontWeight:700, fontSize:13,
+                  background: active ? (uid==="family"?"linear-gradient(90deg,"+C.rajanish+" 0%,"+C.aswini+" 100%)":color) : C.panel2,
+                  color: active ? "#04070A" : C.sub,
                   border: active ? "none" : C.border,
-                  boxShadow: active ? "0 2px 8px rgba(0,0,0,0.12)" : "none",
+                  boxShadow: active ? `0 0 20px ${uid==="family"?"rgba(180,151,255,0.35)":color+"66"}` : "none",
                   transition: "all 0.15s ease",
                 }}>
                 {uid==="family"
-                  ? <><Icon name="heart" size={14} color={active?"#FFF":C.muted}/>{label}</>
-                  : <><span style={{width:8,height:8,borderRadius:99,background:active?"rgba(255,255,255,0.6)":color}}/>{label}</>
+                  ? <><Icon name="heart" size={14} color={active?"#04070A":C.muted}/>{label}</>
+                  : <><span style={{width:7,height:7,borderRadius:99,background:active?"rgba(4,7,10,0.5)":color,flexShrink:0}}/>{label}</>
                 }
               </button>
             );
@@ -943,7 +990,7 @@ try {
   ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 } catch(e) {
   document.getElementById("root").innerHTML =
-    '<div style="max-width:560px;margin:60px auto;font-family:system-ui;color:#13203A">'
-    +'<h3>Couldn\'t start</h3><pre style="white-space:pre-wrap;background:#EEF2F8;padding:12px;border-radius:8px;color:#DC4B5C">'
+    '<div style="max-width:560px;margin:60px auto;font-family:system-ui;color:#F3F5FA">'
+    +'<h3>Couldn\'t start</h3><pre style="white-space:pre-wrap;background:#12141C;padding:12px;border-radius:8px;color:#FF6178">'
     +(e&&e.message?e.message:e)+'</pre></div>';
 }

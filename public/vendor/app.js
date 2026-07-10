@@ -18,26 +18,30 @@ const {
   BarChart,
   Bar
 } = Recharts;
+
+// Dark, glass, "futuristic fintech" palette — inspired by CRED's neon-on-black
+// cards and Apple's high-contrast, generous-whitespace product pages.
 const C = {
-  bg: "#F0F4FA",
-  panel: "#FFFFFF",
-  panel2: "#EEF2F8",
-  line: "#E2E8F1",
-  text: "#13203A",
-  sub: "#5A6884",
-  muted: "#94A1B8",
-  go: "#0E9E86",
-  goSoft: "#E2F4F0",
-  goInk: "#06463B",
-  amber: "#C77E0A",
-  neg: "#DC4B5C",
-  pos: "#0E9E86",
-  btnText: "#FFFFFF",
-  border: "1px solid #E2E8F1",
-  rajanish: "#2A8FD6",
-  aswini: "#7C6BE0"
+  bg: "#06070C",
+  panel: "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.02))",
+  panel2: "rgba(255,255,255,0.07)",
+  panelSolid: "#12141C",
+  line: "rgba(255,255,255,0.09)",
+  text: "#F3F5FA",
+  sub: "#9AA3B9",
+  muted: "#7A84A0",
+  go: "#00E5A8",
+  goSoft: "rgba(0,229,168,0.14)",
+  goInk: "#04150F",
+  amber: "#FFB648",
+  neg: "#FF6178",
+  pos: "#00E5A8",
+  btnText: "#04150F",
+  border: "1px solid rgba(255,255,255,0.09)",
+  rajanish: "#4FA8FF",
+  aswini: "#B497FF"
 };
-const PIE = ["#2A8FD6", "#0FB39A", "#7C6BE0", "#E0A310", "#5566E0", "#E0566B", "#8492A8", "#C77E0A", "#19B7A6", "#9B8CFF"];
+const PIE = ["#4FA8FF", "#00E5A8", "#B497FF", "#FFC24E", "#6E86FF", "#FF6E8E", "#8DA0C4", "#FFB648", "#31D6C4", "#C9B8FF"];
 const USERS = [["rajanish", "Rajanish"], ["aswini", "Aswini"]];
 const BROKERS = [["kite", "Zerodha · Kite"], ["indmoney", "INDmoney"]];
 const USER_BROKERS = {
@@ -47,32 +51,32 @@ const USER_BROKERS = {
 const ASSET_GROUPS = [{
   key: "eq",
   label: "Indian Equities",
-  color: "#2A8FD6",
+  color: "#4FA8FF",
   match: h => !["MF", "US_STOCK", "EPF", "PPF", "NPS", "BOND", "US_401K"].includes(h.assetType) && (h.exchange === "NSE" || h.exchange === "BSE" || !h.assetType && h.exchange)
 }, {
   key: "mf",
   label: "Mutual Funds",
-  color: "#0FB39A",
+  color: "#00E5A8",
   match: h => h.assetType === "MF"
 }, {
   key: "us",
   label: "US Stocks & ETFs",
-  color: "#7C6BE0",
+  color: "#B497FF",
   match: h => h.assetType === "US_STOCK"
 }, {
   key: "fixed",
   label: "EPF / PPF / NPS",
-  color: "#E0A310",
+  color: "#FFC24E",
   match: h => ["EPF", "PPF", "NPS"].includes(h.assetType)
 }, {
   key: "bond",
   label: "Bonds",
-  color: "#5566E0",
+  color: "#6E86FF",
   match: h => h.assetType === "BOND"
 }, {
   key: "ret",
   label: "401k / ESOP (USD)",
-  color: "#E05699",
+  color: "#FF6E9E",
   match: h => h.assetType === "US_401K"
 }];
 function classifyHolding(h) {
@@ -201,17 +205,65 @@ function project(a) {
     todayFI: a.annualExpensesToday / swr
   };
 }
+
+/* ─── Ambient background — soft blurred glow blobs, pure CSS ─── */
+function AmbientGlow() {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "fixed",
+      inset: 0,
+      overflow: "hidden",
+      pointerEvents: "none",
+      zIndex: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: "-18%",
+      left: "-12%",
+      width: 520,
+      height: 520,
+      borderRadius: "50%",
+      background: "radial-gradient(circle, rgba(0,229,168,0.20), transparent 70%)",
+      filter: "blur(70px)"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      bottom: "-22%",
+      right: "-14%",
+      width: 600,
+      height: 600,
+      borderRadius: "50%",
+      background: "radial-gradient(circle, rgba(79,168,255,0.16), transparent 70%)",
+      filter: "blur(80px)"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: "22%",
+      right: "8%",
+      width: 380,
+      height: 380,
+      borderRadius: "50%",
+      background: "radial-gradient(circle, rgba(180,151,255,0.14), transparent 70%)",
+      filter: "blur(70px)"
+    }
+  }));
+}
 function Panel({
   children,
   style,
   className = ""
 }) {
   return /*#__PURE__*/React.createElement("div", {
-    className: "rounded-2xl " + className,
+    className: "rounded-3xl " + className,
     style: {
       background: C.panel,
       border: C.border,
-      boxShadow: "0 1px 3px rgba(19,32,58,0.05)",
+      boxShadow: "0 1px 0 rgba(255,255,255,0.06) inset, 0 20px 44px -24px rgba(0,0,0,0.65)",
+      backdropFilter: "blur(18px)",
+      WebkitBackdropFilter: "blur(18px)",
       ...style
     }
   }, children);
@@ -238,31 +290,46 @@ function Ring({
   const r = size / 2 - 10,
     circ = 2 * Math.PI * r,
     f = Math.max(0, Math.min(1, frac || 0));
+  const gid = "ringGrad";
   return /*#__PURE__*/React.createElement("svg", {
     width: size,
     height: size,
     style: {
-      transform: "rotate(-90deg)"
+      transform: "rotate(-90deg)",
+      overflow: "visible"
     }
-  }, /*#__PURE__*/React.createElement("circle", {
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+    id: gid,
+    x1: "0%",
+    y1: "0%",
+    x2: "100%",
+    y2: "100%"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "0%",
+    stopColor: C.go
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "100%",
+    stopColor: C.rajanish
+  }))), /*#__PURE__*/React.createElement("circle", {
     cx: size / 2,
     cy: size / 2,
     r: r,
     fill: "none",
-    stroke: C.panel2,
+    stroke: "rgba(255,255,255,0.08)",
     strokeWidth: 9
   }), /*#__PURE__*/React.createElement("circle", {
     cx: size / 2,
     cy: size / 2,
     r: r,
     fill: "none",
-    stroke: C.go,
+    stroke: `url(#${gid})`,
     strokeWidth: 9,
     strokeLinecap: "round",
     strokeDasharray: circ,
     strokeDashoffset: circ * (1 - f),
     style: {
-      transition: "stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)"
+      transition: "stroke-dashoffset 1.1s cubic-bezier(.22,1,.36,1)",
+      filter: "drop-shadow(0 0 10px rgba(0,229,168,0.45))"
     }
   }));
 }
@@ -274,11 +341,11 @@ function ChartTip({
 }) {
   if (!active || !payload || !payload.length) return null;
   return /*#__PURE__*/React.createElement("div", {
-    className: "rounded-lg px-3 py-2",
+    className: "rounded-xl px-3 py-2",
     style: {
-      background: C.panel,
+      background: C.panelSolid,
       border: C.border,
-      boxShadow: "0 4px 12px rgba(19,32,58,0.1)",
+      boxShadow: "0 12px 28px -12px rgba(0,0,0,0.7)",
       fontSize: 12
     }
   }, label != null && /*#__PURE__*/React.createElement("div", {
@@ -336,6 +403,21 @@ const api = {
     ...j
   })))
 };
+function StatusDot({
+  color,
+  glow
+}) {
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 7,
+      height: 7,
+      borderRadius: 99,
+      background: color,
+      flexShrink: 0,
+      boxShadow: glow ? `0 0 8px ${color}` : "none"
+    }
+  });
+}
 function BrokerCard({
   user,
   brokerKey,
@@ -349,35 +431,32 @@ function BrokerCard({
   return /*#__PURE__*/React.createElement(Panel, {
     className: "p-4"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between"
+    className: "flex items-center justify-between gap-2"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2"
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 7,
-      height: 7,
-      borderRadius: 99,
-      background: dot,
-      flexShrink: 0
-    }
+    className: "flex items-center gap-2 min-w-0"
+  }, /*#__PURE__*/React.createElement(StatusDot, {
+    color: dot,
+    glow: st?.authed
   }), /*#__PURE__*/React.createElement("span", {
+    className: "truncate",
     style: {
       color: C.text,
       fontSize: 13.5,
       fontWeight: 600
     }
   }, label)), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2"
+    className: "flex gap-2 flex-shrink-0"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => onConnect(user, brokerKey),
     disabled: st?.loading,
-    className: "rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5",
+    className: "rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5",
     style: {
       background: st?.connected ? C.panel2 : C.go,
       color: st?.connected ? C.sub : C.btnText,
       fontSize: 12,
-      fontWeight: 600,
-      border: C.border
+      fontWeight: 700,
+      border: C.border,
+      boxShadow: st?.connected ? "none" : "0 0 16px rgba(0,229,168,0.35)"
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "link",
@@ -385,12 +464,12 @@ function BrokerCard({
   }), st?.connected ? "Re-auth" : "Connect"), /*#__PURE__*/React.createElement("button", {
     onClick: () => onLoad(user, brokerKey),
     disabled: !st?.connected || st?.loading,
-    className: "rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5",
+    className: "rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5",
     style: {
-      background: C.panel,
+      background: C.panel2,
       color: st?.connected ? C.text : C.muted,
       fontSize: 12,
-      fontWeight: 600,
+      fontWeight: 700,
       border: C.border
     }
   }, /*#__PURE__*/React.createElement(Icon, {
@@ -417,38 +496,35 @@ function TruthifiCard({
   return /*#__PURE__*/React.createElement(Panel, {
     className: "p-4",
     style: {
-      borderColor: "#E8D0F0"
+      borderColor: "rgba(180,151,255,0.28)"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between"
+    className: "flex items-center justify-between gap-2"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2"
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      width: 7,
-      height: 7,
-      borderRadius: 99,
-      background: dot,
-      flexShrink: 0
-    }
+    className: "flex items-center gap-2 min-w-0"
+  }, /*#__PURE__*/React.createElement(StatusDot, {
+    color: dot,
+    glow: st?.authed
   }), /*#__PURE__*/React.createElement("span", {
+    className: "truncate",
     style: {
       color: C.text,
       fontSize: 13.5,
       fontWeight: 600
     }
   }, "Truthifi · 401k / ESOP")), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2"
+    className: "flex gap-2 flex-shrink-0"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => onConnect(user, "truthifi"),
     disabled: st?.loading,
-    className: "rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5",
+    className: "rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5",
     style: {
       background: st?.connected ? C.panel2 : C.go,
       color: st?.connected ? C.sub : C.btnText,
       fontSize: 12,
-      fontWeight: 600,
-      border: C.border
+      fontWeight: 700,
+      border: C.border,
+      boxShadow: st?.connected ? "none" : "0 0 16px rgba(0,229,168,0.35)"
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "link",
@@ -456,12 +532,12 @@ function TruthifiCard({
   }), st?.connected ? "Re-auth" : "Connect"), /*#__PURE__*/React.createElement("button", {
     onClick: () => onLoad(user, "truthifi"),
     disabled: !st?.connected || st?.loading,
-    className: "rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5",
+    className: "rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5",
     style: {
-      background: C.panel,
+      background: C.panel2,
       color: st?.connected ? C.text : C.muted,
       fontSize: 12,
-      fontWeight: 600,
+      fontWeight: 700,
       border: C.border
     }
   }, /*#__PURE__*/React.createElement(Icon, {
@@ -474,7 +550,7 @@ function TruthifiCard({
       fontSize: 11.5
     }
   }, status), /*#__PURE__*/React.createElement("div", {
-    className: "mt-1.5 flex items-center gap-1.5",
+    className: "mt-2 flex items-center gap-1.5 flex-wrap",
     style: {
       color: C.amber,
       fontSize: 10.5
@@ -485,8 +561,7 @@ function TruthifiCard({
     color: C.amber
   }), "Rate limited · 5 calls/day · 25/month — Load only when needed", st?.usdInr && /*#__PURE__*/React.createElement("span", {
     style: {
-      color: C.muted,
-      marginLeft: 6
+      color: C.muted
     }
   }, "· 1 USD = ₹", st.usdInr, " at last sync")));
 }
@@ -501,7 +576,6 @@ function Overview({
 }) {
   const frac = proj.todayFI ? Math.min(1, total.current / proj.todayFI) : 0;
   const gainPct = total.invested ? total.pnl / total.invested * 100 : 0;
-  const totalRetPct = total.invested ? total.totalReturn / total.invested * 100 : 0;
   const byClass = useMemo(() => {
     const m = {};
     for (const h of allHoldings) {
@@ -522,14 +596,11 @@ function Overview({
   return /*#__PURE__*/React.createElement("div", {
     className: "space-y-4"
   }, /*#__PURE__*/React.createElement(Panel, {
-    className: "p-6",
-    style: {
-      background: "linear-gradient(135deg,#FFFFFF 0%,#EEF5FF 100%)"
-    }
+    className: "p-6 sm:p-7"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-col md:flex-row md:items-center gap-6"
+    className: "flex flex-col sm:flex-row sm:items-center gap-6"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "relative flex items-center justify-center",
+    className: "relative flex items-center justify-center mx-auto sm:mx-0",
     style: {
       width: 152,
       height: 152,
@@ -542,7 +613,7 @@ function Overview({
   }, /*#__PURE__*/React.createElement("div", {
     className: "font-mono",
     style: {
-      color: C.go,
+      color: C.text,
       fontSize: 26,
       fontWeight: 700,
       lineHeight: 1
@@ -553,18 +624,18 @@ function Overview({
       fontSize: 10
     }
   }, "to FI"))), /*#__PURE__*/React.createElement("div", {
-    className: "flex-1 min-w-0"
+    className: "flex-1 min-w-0 text-center sm:text-left"
   }, /*#__PURE__*/React.createElement(Eyebrow, null, "Total net worth"), /*#__PURE__*/React.createElement("div", {
     className: "mt-1 font-mono",
     style: {
       color: C.text,
-      fontSize: 42,
+      fontSize: 38,
       fontWeight: 700,
       letterSpacing: "-0.02em",
       lineHeight: 1.1
     }
   }, total.current ? cr(total.current) : "—"), /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 flex flex-wrap gap-5"
+    className: "mt-3 flex flex-wrap justify-center sm:justify-start gap-5"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.muted,
@@ -607,12 +678,13 @@ function Overview({
     }
   }, cr(total.dividends)))), go && /*#__PURE__*/React.createElement("button", {
     onClick: () => go("trajectory"),
-    className: "mt-4 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2",
+    className: "mt-4 inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2",
     style: {
       background: C.go,
       color: C.btnText,
-      fontWeight: 600,
-      fontSize: 12.5
+      fontWeight: 700,
+      fontSize: 12.5,
+      boxShadow: "0 0 20px rgba(0,229,168,0.4)"
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "rocket",
@@ -634,12 +706,12 @@ function Overview({
     return /*#__PURE__*/React.createElement("div", {
       key: g.key
     }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center justify-between mb-1",
+      className: "flex items-center justify-between mb-1 gap-2",
       style: {
         fontSize: 12
       }
     }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-2"
+      className: "flex items-center gap-2 min-w-0"
     }, /*#__PURE__*/React.createElement("span", {
       style: {
         width: 8,
@@ -649,16 +721,18 @@ function Overview({
         flexShrink: 0
       }
     }), /*#__PURE__*/React.createElement("span", {
+      className: "truncate",
       style: {
         color: C.text,
         fontWeight: 600
       }
     }, g.label), /*#__PURE__*/React.createElement("span", {
+      className: "flex-shrink-0",
       style: {
         color: C.muted
       }
     }, w.toFixed(1), "%")), /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-3 font-mono"
+      className: "flex items-center gap-3 font-mono flex-shrink-0"
     }, /*#__PURE__*/React.createElement("span", {
       style: {
         color: C.text
@@ -673,7 +747,7 @@ function Overview({
       style: {
         height: 5,
         borderRadius: 99,
-        background: C.panel2,
+        background: "rgba(255,255,255,0.07)",
         overflow: "hidden"
       }
     }, /*#__PURE__*/React.createElement("div", {
@@ -682,7 +756,8 @@ function Overview({
         width: `${w}%`,
         background: g.color,
         borderRadius: 99,
-        transition: "width 0.8s ease"
+        transition: "width 0.8s ease",
+        boxShadow: `0 0 8px ${g.color}`
       }
     })));
   }))));
@@ -705,39 +780,44 @@ function HoldingGroup({
   });
   const gPct = total.invested ? total.pnl / total.invested * 100 : 0;
   return /*#__PURE__*/React.createElement("div", {
-    className: "rounded-2xl overflow-hidden",
+    className: "rounded-3xl overflow-hidden",
     style: {
-      border: C.border
+      border: C.border,
+      background: C.panelSolid
     }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setOpen(o => !o),
-    className: "w-full flex items-center justify-between px-4 py-3",
+    className: "w-full flex items-center justify-between gap-2 px-4 py-3.5",
     style: {
       background: C.panel2,
       borderBottom: open ? C.border : "none"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2.5"
+    className: "flex items-center gap-2.5 min-w-0"
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       width: 8,
       height: 8,
       borderRadius: 2,
-      background: group.color
+      background: group.color,
+      flexShrink: 0,
+      boxShadow: `0 0 6px ${group.color}`
     }
   }), /*#__PURE__*/React.createElement("span", {
+    className: "truncate",
     style: {
       color: C.text,
       fontWeight: 700,
       fontSize: 13
     }
   }, group.label), /*#__PURE__*/React.createElement("span", {
+    className: "flex-shrink-0",
     style: {
       color: C.muted,
       fontSize: 12
     }
-  }, holdings.length, " holding", holdings.length !== 1 ? "s" : "")), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-4 font-mono"
+  }, holdings.length)), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3 font-mono flex-shrink-0"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-right"
   }, /*#__PURE__*/React.createElement("div", {
@@ -751,105 +831,20 @@ function HoldingGroup({
       color: gPct >= 0 ? C.pos : C.neg,
       fontSize: 11
     }
-  }, pct(gPct), " · ", total.pnl >= 0 ? "+" : "", cr(total.pnl))), /*#__PURE__*/React.createElement(Icon, {
+  }, pct(gPct))), /*#__PURE__*/React.createElement(Icon, {
     name: "chevron",
     size: 14,
     color: C.muted,
     style: {
       transform: open ? "rotate(90deg)" : "rotate(0deg)",
-      transition: "transform 0.2s"
+      transition: "transform 0.2s",
+      flexShrink: 0
     }
-  }))), open && /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: C.panel
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "grid px-4 py-2",
-    style: {
-      gridTemplateColumns: "1fr auto auto auto",
-      gap: 16,
-      borderBottom: C.border
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.muted,
-      fontSize: 10.5,
-      fontWeight: 700,
-      letterSpacing: "0.1em",
-      textTransform: "uppercase"
-    }
-  }, "Name"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.muted,
-      fontSize: 10.5,
-      fontWeight: 700,
-      letterSpacing: "0.1em",
-      textTransform: "uppercase",
-      textAlign: "right",
-      minWidth: 90
-    }
-  }, "Invested"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.muted,
-      fontSize: 10.5,
-      fontWeight: 700,
-      letterSpacing: "0.1em",
-      textTransform: "uppercase",
-      textAlign: "right",
-      minWidth: 90
-    }
-  }, "Current"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.muted,
-      fontSize: 10.5,
-      fontWeight: 700,
-      letterSpacing: "0.1em",
-      textTransform: "uppercase",
-      textAlign: "right",
-      minWidth: 80
-    }
-  }, "Return")), holdings.map((h, i) => /*#__PURE__*/React.createElement(HoldingRow, {
+  }))), open && /*#__PURE__*/React.createElement("div", null, holdings.map((h, i) => /*#__PURE__*/React.createElement(HoldingRow, {
     key: i,
     h: h,
     last: i === holdings.length - 1
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "grid px-4 py-2.5",
-    style: {
-      gridTemplateColumns: "1fr auto auto auto",
-      gap: 16,
-      background: C.panel2,
-      borderTop: C.border
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: C.sub,
-      fontSize: 11.5,
-      fontWeight: 600
-    }
-  }, "Total"), /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-right",
-    style: {
-      color: C.sub,
-      fontSize: 11.5,
-      minWidth: 90
-    }
-  }, cr(total.invested)), /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-right",
-    style: {
-      color: C.text,
-      fontSize: 11.5,
-      fontWeight: 600,
-      minWidth: 90
-    }
-  }, cr(total.current)), /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-right",
-    style: {
-      color: gPct >= 0 ? C.pos : C.neg,
-      fontSize: 11.5,
-      fontWeight: 600,
-      minWidth: 80
-    }
-  }, pct(gPct)))));
+  }))));
 }
 function HoldingRow({
   h,
@@ -859,22 +854,23 @@ function HoldingRow({
   const up = (h.absoluteReturn || 0) >= 0;
   const tone = up ? C.pos : C.neg;
   const retPct = h.absoluteReturnPct;
-  const subtitle = [h.broker, h.exchange, h.assetType && h.assetType !== h.exchange ? h.assetType : null].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(" · ");
-  const hasExtra = h.xirr != null || h.cagr != null || h.dividendEarned > 0;
+  const metaBits = [h.broker, h.exchange, h.assetType && h.assetType !== h.exchange ? h.assetType : null].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+  const unitsBit = h.quantity != null && h.unitPrice != null ? `${h.quantity % 1 === 0 ? h.quantity.toFixed(0) : h.quantity.toFixed(4)} × ${inr(h.unitPrice)}` : null;
+  const investedBit = h.invested ? `Inv. ${cr(h.invested)}` : null;
+  const subtitle = [...metaBits, unitsBit || investedBit].filter(Boolean).join(" · ");
+  const hasExtra = h.xirr != null || h.cagr != null || h.dividendEarned > 0 || unitsBit && h.invested;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       borderBottom: last && !exp ? "none" : C.border
     }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => hasExtra && setExp(o => !o),
-    className: "w-full grid px-4 py-3 text-left",
+    className: "w-full flex items-start justify-between gap-3 px-4 py-3 text-left",
     style: {
-      gridTemplateColumns: "1fr auto auto auto",
-      gap: 16,
       cursor: hasExtra ? "pointer" : "default"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "min-w-0"
+    className: "min-w-0 flex-1"
   }, /*#__PURE__*/React.createElement("div", {
     className: "truncate",
     style: {
@@ -883,57 +879,53 @@ function HoldingRow({
       fontWeight: 600
     }
   }, h.symbol), subtitle && /*#__PURE__*/React.createElement("div", {
+    className: "truncate",
     style: {
       color: C.muted,
       fontSize: 11,
-      marginTop: 1
+      marginTop: 2
     }
-  }, subtitle), h.quantity != null && h.unitPrice != null && /*#__PURE__*/React.createElement("div", {
+  }, subtitle)), /*#__PURE__*/React.createElement("div", {
+    className: "text-right flex-shrink-0",
     style: {
-      color: C.muted,
-      fontSize: 10.5,
-      marginTop: 1
+      minWidth: 78
     }
-  }, h.quantity % 1 === 0 ? h.quantity.toFixed(0) : h.quantity.toFixed(4), " units × ", inr(h.unitPrice))), /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-right self-center",
-    style: {
-      color: C.sub,
-      fontSize: 12.5,
-      minWidth: 90
-    }
-  }, h.invested ? cr(h.invested) : "—"), /*#__PURE__*/React.createElement("span", {
-    className: "font-mono text-right self-center",
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "font-mono",
     style: {
       color: C.text,
       fontSize: 13,
-      fontWeight: 600,
-      minWidth: 90
+      fontWeight: 700
     }
   }, h.current ? cr(h.current) : "—"), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-col items-end self-center",
-    style: {
-      minWidth: 80
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "font-mono",
+    className: "flex items-center justify-end gap-1 font-mono",
     style: {
       color: tone,
-      fontSize: 13,
-      fontWeight: 600
+      fontSize: 11
     }
-  }, retPct != null ? pct(retPct) : "—"), h.absoluteReturn != null && /*#__PURE__*/React.createElement("span", {
-    className: "font-mono",
+  }, /*#__PURE__*/React.createElement("span", null, retPct != null ? pct(retPct) : "—")))), exp && hasExtra && /*#__PURE__*/React.createElement("div", {
+    className: "px-4 pb-3 flex flex-wrap gap-x-6 gap-y-2",
     style: {
-      color: tone,
-      fontSize: 10.5
-    }
-  }, h.absoluteReturn >= 0 ? "+" : "", cr(h.absoluteReturn)))), exp && hasExtra && /*#__PURE__*/React.createElement("div", {
-    className: "px-4 pb-3 flex flex-wrap gap-x-6 gap-y-1",
-    style: {
-      background: "#FAFBFE",
+      background: "rgba(255,255,255,0.02)",
       borderTop: C.border
     }
-  }, h.xirr != null && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, unitsBit && h.invested && /*#__PURE__*/React.createElement("div", {
+    className: "pt-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 10
+    }
+  }, "Invested"), /*#__PURE__*/React.createElement("div", {
+    className: "font-mono",
+    style: {
+      color: C.sub,
+      fontSize: 12,
+      fontWeight: 600
+    }
+  }, cr(h.invested))), h.xirr != null && /*#__PURE__*/React.createElement("div", {
+    className: "pt-2"
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.muted,
       fontSize: 10
@@ -945,7 +937,9 @@ function HoldingRow({
       fontSize: 12,
       fontWeight: 600
     }
-  }, pct(h.xirr))), h.cagr != null && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, pct(h.xirr))), h.cagr != null && /*#__PURE__*/React.createElement("div", {
+    className: "pt-2"
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.muted,
       fontSize: 10
@@ -957,7 +951,9 @@ function HoldingRow({
       fontSize: 12,
       fontWeight: 600
     }
-  }, pct(h.cagr))), h.dividendEarned > 0 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, pct(h.cagr))), h.dividendEarned > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pt-2"
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.muted,
       fontSize: 10
@@ -969,7 +965,21 @@ function HoldingRow({
       fontSize: 12,
       fontWeight: 600
     }
-  }, cr(h.dividendEarned)))));
+  }, cr(h.dividendEarned))), h.absoluteReturn != null && /*#__PURE__*/React.createElement("div", {
+    className: "pt-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.muted,
+      fontSize: 10
+    }
+  }, "Gain"), /*#__PURE__*/React.createElement("div", {
+    className: "font-mono",
+    style: {
+      color: tone,
+      fontSize: 12,
+      fontWeight: 600
+    }
+  }, h.absoluteReturn >= 0 ? "+" : "", cr(h.absoluteReturn)))));
 }
 function Holdings({
   allHoldings,
@@ -1066,7 +1076,7 @@ function Allocation({
     if (rest > 0) top.push({
       name: "Other",
       value: rest,
-      color: "#B8C2D4"
+      color: "#8492A8"
     });
     return top;
   }, [allHoldings]);
@@ -1079,11 +1089,11 @@ function Allocation({
   }, [["class", "By asset class"], ["holding", "By holding"]].map(([v, l]) => /*#__PURE__*/React.createElement("button", {
     key: v,
     onClick: () => setView(v),
-    className: "rounded-lg px-3 py-1.5",
+    className: "rounded-xl px-3 py-1.5",
     style: {
       fontSize: 12.5,
       fontWeight: 600,
-      background: view === v ? C.go : C.panel,
+      background: view === v ? C.go : C.panel2,
       color: view === v ? C.btnText : C.sub,
       border: C.border
     }
@@ -1103,7 +1113,8 @@ function Allocation({
     innerRadius: 68,
     outerRadius: 110,
     paddingAngle: 2,
-    stroke: "none"
+    stroke: "none",
+    isAnimationActive: false
   }, data.map((x, i) => /*#__PURE__*/React.createElement(Cell, {
     key: i,
     fill: x.color
@@ -1154,7 +1165,7 @@ function Allocation({
       style: {
         height: 4,
         borderRadius: 99,
-        background: C.panel2
+        background: "rgba(255,255,255,0.07)"
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
@@ -1260,7 +1271,7 @@ function Trajectory({
     y: fi.corpus,
     r: 5,
     fill: C.go,
-    stroke: "#fff",
+    stroke: C.bg,
     strokeWidth: 2
   })))), /*#__PURE__*/React.createElement("div", {
     className: "mt-2",
@@ -1311,7 +1322,7 @@ function DataRoom({
   }, /*#__PURE__*/React.createElement(Panel, {
     className: "p-4 flex gap-2",
     style: {
-      borderColor: "#EAD9B0"
+      borderColor: "rgba(255,182,72,0.3)"
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "alert",
@@ -1343,7 +1354,7 @@ function DataRoom({
     }, tools.length ? tools.map(t => /*#__PURE__*/React.createElement("button", {
       key: t,
       onClick: () => run(k, t),
-      className: "rounded-lg px-3 py-1.5",
+      className: "rounded-xl px-3 py-1.5",
       style: {
         background: C.panel2,
         color: C.text,
@@ -1360,9 +1371,9 @@ function DataRoom({
   }), open && /*#__PURE__*/React.createElement(Panel, {
     className: "p-5"
   }, /*#__PURE__*/React.createElement(Eyebrow, null, "Result · ", open), /*#__PURE__*/React.createElement("pre", {
-    className: "mt-3 rounded-lg p-3 overflow-auto",
+    className: "mt-3 rounded-xl p-3 overflow-auto",
     style: {
-      background: C.panel2,
+      background: "#0A0B10",
       color: C.text,
       fontSize: 12,
       maxHeight: 400
@@ -1413,7 +1424,7 @@ function FamilyDashboard({
   }, /*#__PURE__*/React.createElement(Panel, {
     className: "p-4 sm:col-span-1",
     style: {
-      background: "linear-gradient(135deg,#FFFFFF 0%,#EEF5FF 100%)"
+      background: "linear-gradient(135deg, rgba(0,229,168,0.14), rgba(79,168,255,0.08))"
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2 mb-2"
@@ -1450,7 +1461,8 @@ function FamilyDashboard({
       height: 8,
       borderRadius: 99,
       background: C[u.uid] || C.go,
-      flexShrink: 0
+      flexShrink: 0,
+      boxShadow: `0 0 6px ${C[u.uid] || C.go}`
     }
   }), /*#__PURE__*/React.createElement(Eyebrow, {
     style: {
@@ -1477,17 +1489,17 @@ function FamilyDashboard({
       marginTop: 4
     }
   }, u.holdings.length, " holdings")))), /*#__PURE__*/React.createElement("nav", {
-    className: "flex gap-1 overflow-x-auto pb-1"
+    className: "no-scrollbar flex gap-1 overflow-x-auto pb-1"
   }, NAV_FAM.map(([k, l, ic]) => /*#__PURE__*/React.createElement("button", {
     key: k,
     onClick: () => setTab(k),
-    className: "flex items-center gap-1.5 rounded-lg px-3 py-2 whitespace-nowrap",
+    className: "flex items-center gap-1.5 rounded-xl px-3 py-2 whitespace-nowrap flex-shrink-0",
     style: {
       fontSize: 12.5,
       fontWeight: 600,
-      background: tab === k ? C.panel : "transparent",
+      background: tab === k ? C.panel2 : "transparent",
       color: tab === k ? C.text : C.sub,
-      border: `1px solid ${tab === k ? C.line : "transparent"}`
+      border: `1px solid ${tab === k ? "rgba(255,255,255,0.12)" : "transparent"}`
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: ic,
@@ -1588,17 +1600,17 @@ function UserDashboard({
       onLoad: onLoad
     });
   })), /*#__PURE__*/React.createElement("nav", {
-    className: "flex gap-1 overflow-x-auto pb-1"
+    className: "no-scrollbar flex gap-1 overflow-x-auto pb-1"
   }, USER_NAV.map(([k, l, ic]) => /*#__PURE__*/React.createElement("button", {
     key: k,
     onClick: () => setTab(k),
-    className: "flex items-center gap-1.5 rounded-lg px-3 py-2 whitespace-nowrap",
+    className: "flex items-center gap-1.5 rounded-xl px-3 py-2 whitespace-nowrap flex-shrink-0",
     style: {
       fontSize: 12.5,
       fontWeight: 600,
-      background: tab === k ? C.panel : "transparent",
+      background: tab === k ? C.panel2 : "transparent",
       color: tab === k ? C.text : C.sub,
-      border: `1px solid ${tab === k ? C.line : "transparent"}`
+      border: `1px solid ${tab === k ? "rgba(255,255,255,0.12)" : "transparent"}`
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: ic,
@@ -1769,63 +1781,80 @@ function App() {
     style: {
       background: C.bg,
       color: C.text,
-      minHeight: "100vh"
+      minHeight: "100vh",
+      position: "relative"
     }
-  }, /*#__PURE__*/React.createElement("style", null, `@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`), /*#__PURE__*/React.createElement("div", {
-    className: "max-w-5xl mx-auto px-4 md:px-6 py-5"
-  }, /*#__PURE__*/React.createElement("header", {
-    className: "flex items-center justify-between mb-5"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2.5"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "rounded-lg flex items-center justify-center",
+  }, /*#__PURE__*/React.createElement("style", null, `
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        .no-scrollbar::-webkit-scrollbar{display:none}
+        .no-scrollbar{scrollbar-width:none;-ms-overflow-style:none}
+        input[type=range]{-webkit-appearance:none;background:rgba(255,255,255,0.09);border-radius:99px}
+        input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:99px;
+          background:${C.go};box-shadow:0 0 8px rgba(0,229,168,0.6);cursor:pointer}
+        input[type=range]::-moz-range-thumb{width:15px;height:15px;border:none;border-radius:99px;
+          background:${C.go};box-shadow:0 0 8px rgba(0,229,168,0.6);cursor:pointer}
+      `), /*#__PURE__*/React.createElement(AmbientGlow, null), /*#__PURE__*/React.createElement("div", {
+    className: "relative max-w-5xl mx-auto px-4 md:px-6 py-5",
     style: {
-      width: 32,
-      height: 32,
-      background: C.go
+      zIndex: 1
+    }
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "flex items-center justify-between gap-3 mb-5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2.5 min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl flex items-center justify-center flex-shrink-0",
+    style: {
+      width: 34,
+      height: 34,
+      background: C.go,
+      boxShadow: "0 0 18px rgba(0,229,168,0.45)"
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "rocket",
     size: 17,
-    color: "#FFF"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    color: C.btnText
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "min-w-0"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "truncate",
     style: {
       fontWeight: 700,
       fontSize: 15
     }
   }, "Wealth Trajectory"), /*#__PURE__*/React.createElement("div", {
+    className: "truncate",
     style: {
       color: C.muted,
       fontSize: 11
     }
   }, "your data · your server · no middleman"))), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-3"
+    className: "flex items-center gap-2.5 flex-shrink-0"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "hidden sm:block text-right"
+    className: "text-right"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       color: C.muted,
-      fontSize: 10.5,
+      fontSize: 10,
       textTransform: "uppercase",
       letterSpacing: "0.1em"
     }
-  }, "Family Net Worth"), /*#__PURE__*/React.createElement("div", {
+  }, "Family"), /*#__PURE__*/React.createElement("div", {
     className: "font-mono",
     style: {
       color: C.go,
-      fontSize: 17,
+      fontSize: 15,
       fontWeight: 700
     }
   }, familyTotal ? cr(familyTotal) : "—")), /*#__PURE__*/React.createElement("button", {
     onClick: refreshFromDrive,
     disabled: driveRefreshing,
     title: driveError || "Refresh from Google Drive cache",
-    className: "rounded-lg p-2 flex items-center justify-center",
+    className: "rounded-xl p-2 flex items-center justify-center flex-shrink-0",
     style: {
-      background: C.panel,
+      background: C.panel2,
       border: C.border,
-      color: driveError ? C.neg : C.sub,
-      flexShrink: 0
+      color: driveError ? C.neg : C.sub
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "refresh",
@@ -1834,32 +1863,33 @@ function App() {
       animation: "spin 1s linear infinite"
     } : {}
   })))), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2 mb-5"
+    className: "grid grid-cols-3 gap-2 mb-5"
   }, USER_TABS.map(([uid, label, color]) => {
     const active = userTab === uid;
     return /*#__PURE__*/React.createElement("button", {
       key: uid,
       onClick: () => setUserTab(uid),
-      className: "flex items-center gap-2 rounded-xl px-4 py-2.5",
+      className: "flex items-center justify-center gap-2 rounded-2xl px-3 py-2.5",
       style: {
         fontWeight: 700,
-        fontSize: 13.5,
-        background: active ? uid === "family" ? "linear-gradient(90deg," + C.rajanish + " 0%," + C.aswini + " 100%)" : color : C.panel,
-        color: active ? "#FFF" : C.sub,
+        fontSize: 13,
+        background: active ? uid === "family" ? "linear-gradient(90deg," + C.rajanish + " 0%," + C.aswini + " 100%)" : color : C.panel2,
+        color: active ? "#04070A" : C.sub,
         border: active ? "none" : C.border,
-        boxShadow: active ? "0 2px 8px rgba(0,0,0,0.12)" : "none",
+        boxShadow: active ? `0 0 20px ${uid === "family" ? "rgba(180,151,255,0.35)" : color + "66"}` : "none",
         transition: "all 0.15s ease"
       }
     }, uid === "family" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Icon, {
       name: "heart",
       size: 14,
-      color: active ? "#FFF" : C.muted
+      color: active ? "#04070A" : C.muted
     }), label) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
       style: {
-        width: 8,
-        height: 8,
+        width: 7,
+        height: 7,
         borderRadius: 99,
-        background: active ? "rgba(255,255,255,0.6)" : color
+        background: active ? "rgba(4,7,10,0.5)" : color,
+        flexShrink: 0
       }
     }), label));
   })), userTab === "rajanish" && /*#__PURE__*/React.createElement(UserDashboard, {
@@ -1891,5 +1921,5 @@ try {
   if (typeof Recharts === "undefined") throw new Error("Recharts didn't load — check public/vendor/");
   ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));
 } catch (e) {
-  document.getElementById("root").innerHTML = '<div style="max-width:560px;margin:60px auto;font-family:system-ui;color:#13203A">' + '<h3>Couldn\'t start</h3><pre style="white-space:pre-wrap;background:#EEF2F8;padding:12px;border-radius:8px;color:#DC4B5C">' + (e && e.message ? e.message : e) + '</pre></div>';
+  document.getElementById("root").innerHTML = '<div style="max-width:560px;margin:60px auto;font-family:system-ui;color:#F3F5FA">' + '<h3>Couldn\'t start</h3><pre style="white-space:pre-wrap;background:#12141C;padding:12px;border-radius:8px;color:#FF6178">' + (e && e.message ? e.message : e) + '</pre></div>';
 }

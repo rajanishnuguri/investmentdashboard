@@ -11,11 +11,18 @@
 <script crossorigin src="/vendor/react-is.production.min.js"></script>
 <script src="/vendor/prop-types.min.js"></script>
 <script src="/vendor/Recharts.js"></script>
+<meta name="theme-color" content="#06070C"/>
 <style>
-  body { margin:0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  html { background:#06070C; }
+  body {
+    margin:0; background:#06070C; color:#F3F5FA;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  }
   input[type=range]{height:4px;border-radius:4px}
   ::-webkit-scrollbar{width:8px;height:8px}
-  ::-webkit-scrollbar-thumb{background:#E2E8F1;border-radius:8px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.14);border-radius:8px}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22)}
 </style>
 </head>
 <body>

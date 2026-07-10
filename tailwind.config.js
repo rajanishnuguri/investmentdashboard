@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [{ raw: require('fs').readFileSync('./index.html', 'utf8'), extension: 'html' }],
+  content: ["./src/**/*.jsx", "./public/index.html"],
   theme: { extend: {} },
   plugins: [],
 }
