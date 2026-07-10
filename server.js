@@ -95,6 +95,11 @@ function getSession(user, broker) {
 }
 
 const app = express();
+// Render (and most PaaS) terminate HTTPS at their edge and forward plain HTTP
+// to this process. Without trusting that proxy, req.protocol always reports
+// "http", which breaks the OAuth callback URL built below (INDmoney/Truthifi
+// reject a redirect_uri that isn't https:// for a public host).
+app.set("trust proxy", 1);
 app.use(express.json());
 
 app.use((_req, res, next) => {
@@ -162,10 +167,13 @@ app.post("/api/:user/:broker/connect", wrap(async (req, res) => {
   if (!s) return res.status(404).json({ error: "Unknown user or broker" });
 
   try {
+    // Any non-throwing result is the answer — including a null loginUrl,
+    // which means the broker confirmed the session is already authenticated
+    // (e.g. Kite's login tool on a Re-auth click). Only an actual throw
+    // means auth is genuinely required and the generic OAuth flow below
+    // should be attempted.
     const result = await s.beginLogin();
-    if (result.loginUrl || result.note) {
-      return res.json({ ...result, tools: s.tools.map((t) => t.name) });
-    }
+    return res.json({ ...result, tools: s.tools.map((t) => t.name) });
   } catch (e) {
     if (!String(e?.message).includes("invalid_token") &&
         !String(e?.message).includes("Authentication required") &&

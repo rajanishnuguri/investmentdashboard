@@ -29,6 +29,29 @@ function classifyHolding(h) {
   return ASSET_GROUPS.find(g => g.match(h)) || { key:"other", label:"Other", color:"#8492A8" };
 }
 
+// Collapse several holdings of the same kind (e.g. one EPF account per
+// employer) into a single summed row.
+function mergeHoldings(list, symbol){
+  const sum = (key) => list.reduce((s,h)=>s+(h[key]||0),0);
+  const invested = sum("invested");
+  const current = sum("current");
+  const pnl = sum("absoluteReturn");
+  const dividendEarned = sum("dividendEarned");
+  const totalReturn = sum("totalReturn");
+  const pnlPct = invested ? (pnl/invested)*100 : null;
+  const totalReturnPct = invested ? (totalReturn/invested)*100 : null;
+  return {
+    symbol, exchange:symbol, assetType:symbol, broker:"", investmentCode:null,
+    unitPrice:null, quantity:null,
+    invested: invested||null, current: current||null,
+    pnl, pnlPct, absoluteReturn:pnl, absoluteReturnPct:pnlPct,
+    dividendEarned: dividendEarned||null, totalReturn: totalReturn||null, totalReturnPct,
+    returnWithDividends: totalReturnPct, returnWithoutDividends: pnlPct,
+    xirr:null, benchmarkXirr:null, cagr:null,
+    source: list.map(h=>h.source).filter((v,i,a)=>a.indexOf(v)===i).join(","),
+  };
+}
+
 const I = {
   rocket:"M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09zM12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z",
   refresh:"M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
@@ -396,6 +419,15 @@ function Holdings({allHoldings, refreshedAt}){
       const g = classifyHolding(h);
       if(!map[g.key]) map[g.key]={...g,holdings:[]};
       map[g.key].holdings.push(h);
+    }
+    // Multiple EPF entries (e.g. one pair per employer) are collapsed into a
+    // single combined row — the per-employer breakdown isn't useful here.
+    for(const g of Object.values(map)){
+      const epfs = g.holdings.filter(h=>h.assetType==="EPF");
+      if(epfs.length>1){
+        const merged = mergeHoldings(epfs,"EPF");
+        g.holdings = [...g.holdings.filter(h=>h.assetType!=="EPF"), merged];
+      }
     }
     return Object.values(map).sort((a,b)=>{
       const sa = a.holdings.reduce((s,h)=>s+(h.current||0),0);
