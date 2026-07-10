@@ -147,6 +147,15 @@ app.get("/api/status", wrap(async (_req, res) => {
   res.json({ users: out });
 }));
 
+// Pull the latest cache JSON from Google Drive and replace the local cache
+// with it — used by the manual refresh button in the UI.
+app.post("/api/drive/refresh", wrap(async (_req, res) => {
+  const remote = await loadFromDrive();
+  if (!remote) return res.status(502).json({ error: "Could not load cache from Google Drive" });
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(remote, null, 2));
+  res.json({ ok: true });
+}));
+
 app.post("/api/:user/:broker/connect", wrap(async (req, res) => {
   const { user, broker } = req.params;
   const s = getSession(user, broker);

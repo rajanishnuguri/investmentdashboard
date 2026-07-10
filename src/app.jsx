@@ -123,6 +123,7 @@ const api = {
   portfolio: (u,b)=>fetch(`/api/${u}/${b}/portfolio`).then(r=>r.json().then(j=>({ok:r.ok,status:r.status,...j}))),
   callTool: (u,b,name,args)=>fetch(`/api/${u}/${b}/tool`,{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({name,arguments:args||{}})}).then(r=>r.json()),
+  refreshFromDrive: ()=>fetch("/api/drive/refresh",{method:"POST"}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
 };
 
 function BrokerCard({user, brokerKey, label, st, onConnect, onLoad}){
@@ -757,7 +758,8 @@ function App(){
     }));
   }
 
-  useEffect(()=>{ api.status().then(s=>{
+  async function refreshStatus(){
+    const s = await api.status();
     const next={ rajanish:{brokers:{}}, aswini:{brokers:{}} };
     for(const [uid, uData] of Object.entries(s.users||{})){
       if(!next[uid]) next[uid]={brokers:{}};
@@ -771,7 +773,21 @@ function App(){
       }
     }
     setUsers(next);
-  }).catch(()=>{}); },[]);
+  }
+
+  useEffect(()=>{ refreshStatus().catch(()=>{}); },[]);
+
+  const [driveRefreshing, setDriveRefreshing] = useState(false);
+  const [driveError, setDriveError] = useState(null);
+  async function refreshFromDrive(){
+    setDriveRefreshing(true); setDriveError(null);
+    try{
+      const r = await api.refreshFromDrive();
+      if(!r.ok) throw new Error(r.error||"Drive refresh failed");
+      await refreshStatus();
+    }catch(e){ setDriveError(String(e.message||e)); }
+    finally{ setDriveRefreshing(false); }
+  }
 
   async function connect(user, broker){
     patchBroker(user,broker,{loading:true,error:null});
@@ -827,9 +843,17 @@ function App(){
               <div style={{color:C.muted,fontSize:11}}>your data · your server · no middleman</div>
             </div>
           </div>
-          <div className="hidden sm:block text-right">
-            <div style={{color:C.muted,fontSize:10.5,textTransform:"uppercase",letterSpacing:"0.1em"}}>Family Net Worth</div>
-            <div className="font-mono" style={{color:C.go,fontSize:17,fontWeight:700}}>{familyTotal?cr(familyTotal):"—"}</div>
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:block text-right">
+              <div style={{color:C.muted,fontSize:10.5,textTransform:"uppercase",letterSpacing:"0.1em"}}>Family Net Worth</div>
+              <div className="font-mono" style={{color:C.go,fontSize:17,fontWeight:700}}>{familyTotal?cr(familyTotal):"—"}</div>
+            </div>
+            <button onClick={refreshFromDrive} disabled={driveRefreshing}
+              title={driveError||"Refresh from Google Drive cache"}
+              className="rounded-lg p-2 flex items-center justify-center"
+              style={{background:C.panel,border:C.border,color:driveError?C.neg:C.sub,flexShrink:0}}>
+              <Icon name="refresh" size={15} style={driveRefreshing?{animation:"spin 1s linear infinite"}:{}}/>
+            </button>
           </div>
         </header>
 

@@ -291,7 +291,13 @@ const api = {
       name,
       arguments: args || {}
     })
-  }).then(r => r.json())
+  }).then(r => r.json()),
+  refreshFromDrive: () => fetch("/api/drive/refresh", {
+    method: "POST"
+  }).then(r => r.json().then(j => ({
+    ok: r.ok,
+    ...j
+  })))
 };
 function BrokerCard({
   user,
@@ -1600,38 +1606,55 @@ function App() {
       }
     }));
   }
-  useEffect(() => {
-    api.status().then(s => {
-      const next = {
-        rajanish: {
-          brokers: {}
-        },
-        aswini: {
-          brokers: {}
-        }
+  async function refreshStatus() {
+    const s = await api.status();
+    const next = {
+      rajanish: {
+        brokers: {}
+      },
+      aswini: {
+        brokers: {}
+      }
+    };
+    for (const [uid, uData] of Object.entries(s.users || {})) {
+      if (!next[uid]) next[uid] = {
+        brokers: {}
       };
-      for (const [uid, uData] of Object.entries(s.users || {})) {
-        if (!next[uid]) next[uid] = {
-          brokers: {}
+      for (const [broker, info] of Object.entries(uData.brokers || {})) {
+        next[uid].brokers[broker] = {
+          connected: info.connected,
+          authed: info.authed,
+          tools: info.tools,
+          loginUrl: info.loginUrl,
+          usdInr: info.usdInr || null
         };
-        for (const [broker, info] of Object.entries(uData.brokers || {})) {
-          next[uid].brokers[broker] = {
-            connected: info.connected,
-            authed: info.authed,
-            tools: info.tools,
-            loginUrl: info.loginUrl,
-            usdInr: info.usdInr || null
-          };
-          if (info.cachedHoldings?.length) {
-            next[uid].brokers[broker].holdings = info.cachedHoldings;
-            next[uid].brokers[broker].fromCache = true;
-            next[uid].brokers[broker].cachedAt = info.cachedAt;
-          }
+        if (info.cachedHoldings?.length) {
+          next[uid].brokers[broker].holdings = info.cachedHoldings;
+          next[uid].brokers[broker].fromCache = true;
+          next[uid].brokers[broker].cachedAt = info.cachedAt;
         }
       }
-      setUsers(next);
-    }).catch(() => {});
+    }
+    setUsers(next);
+  }
+  useEffect(() => {
+    refreshStatus().catch(() => {});
   }, []);
+  const [driveRefreshing, setDriveRefreshing] = useState(false);
+  const [driveError, setDriveError] = useState(null);
+  async function refreshFromDrive() {
+    setDriveRefreshing(true);
+    setDriveError(null);
+    try {
+      const r = await api.refreshFromDrive();
+      if (!r.ok) throw new Error(r.error || "Drive refresh failed");
+      await refreshStatus();
+    } catch (e) {
+      setDriveError(String(e.message || e));
+    } finally {
+      setDriveRefreshing(false);
+    }
+  }
   async function connect(user, broker) {
     patchBroker(user, broker, {
       loading: true,
@@ -1730,6 +1753,8 @@ function App() {
       fontSize: 11
     }
   }, "your data · your server · no middleman"))), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-3"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "hidden sm:block text-right"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1745,7 +1770,24 @@ function App() {
       fontSize: 17,
       fontWeight: 700
     }
-  }, familyTotal ? cr(familyTotal) : "—"))), /*#__PURE__*/React.createElement("div", {
+  }, familyTotal ? cr(familyTotal) : "—")), /*#__PURE__*/React.createElement("button", {
+    onClick: refreshFromDrive,
+    disabled: driveRefreshing,
+    title: driveError || "Refresh from Google Drive cache",
+    className: "rounded-lg p-2 flex items-center justify-center",
+    style: {
+      background: C.panel,
+      border: C.border,
+      color: driveError ? C.neg : C.sub,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "refresh",
+    size: 15,
+    style: driveRefreshing ? {
+      animation: "spin 1s linear infinite"
+    } : {}
+  })))), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2 mb-5"
   }, USER_TABS.map(([uid, label, color]) => {
     const active = userTab === uid;
