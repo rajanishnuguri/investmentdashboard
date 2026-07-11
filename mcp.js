@@ -13,6 +13,19 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const URL_RE = /(https?:\/\/[^\s"'<>)\]]+)/g;
 
+// Some hosting environments (e.g. Render's outbound networking) can leave an
+// MCP Streamable-HTTP connection hanging indefinitely with no error at all —
+// the request just never resolves. Race every connection attempt against a
+// timeout so a stuck broker fails fast with a clear message instead of
+// leaving the UI stuck on "Working…" forever.
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // Tool-name heuristics. MCP servers don't share a fixed vocabulary, so we match
 // by intent. After you connect, the Tools tab shows the real names for your
 // account — tweak these arrays if your broker uses different ones.
@@ -126,9 +139,19 @@ export class BrokerSession {
       : {};
     this.transport = new StreamableHTTPClientTransport(new URL(this.url), { requestInit: { headers } });
     this.client = new Client(this.clientInfo, { capabilities: {} });
-    await this.client.connect(this.transport);
     try {
-      const listed = await this.client.listTools();
+      await withTimeout(this.client.connect(this.transport), 20000,
+        `Could not reach ${this.url} — connection timed out after 20s.`);
+    } catch (e) {
+      // Connection never established — undo so the next attempt starts clean
+      // instead of being stuck with a half-open client.
+      this.client = null;
+      this.transport = null;
+      throw e;
+    }
+    try {
+      const listed = await withTimeout(this.client.listTools(), 20000,
+        `${this.url} did not respond to listTools() within 20s.`);
       this.tools = listed.tools || [];
     } catch (e) {
       // Some servers (e.g. INDmoney) require auth before they expose tools.

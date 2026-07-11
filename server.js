@@ -3,6 +3,7 @@ import "./env.js";
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import { BrokerSession } from "./mcp.js";
@@ -54,6 +55,10 @@ const USER_BROKERS = {
   aswini:   ["kite", "indmoney", "truthifi"],
 };
 
+// Users who can add manually-entered assets (e.g. a foreign ESOP account with
+// no MCP server). Stored in their native currency, converted to INR live.
+const USER_MANUAL = { rajanish: true };
+
 // Sessions keyed by "user::broker"
 const sessions = new Map();
 
@@ -82,6 +87,47 @@ function saveCache(user, broker, data) {
   // just changed — everything else is untouched, so the remote file still
   // ends up as an accurate full snapshot of exactly what's cached locally.
   saveToDrive(cache).catch(() => {});
+}
+
+function loadManualEntries(user) {
+  const cache = loadCache();
+  return cache[user]?.manual?.entries || [];
+}
+
+function saveManualEntries(user, entries) {
+  const cache = loadCache();
+  if (!cache[user]) cache[user] = {};
+  cache[user].manual = { entries, savedAt: new Date().toISOString() };
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  saveToDrive(cache).catch(() => {});
+}
+
+// Normalise a manually-entered asset (stored in EUR) into the same holding
+// shape broker holdings use, converting to INR with the live rate supplied.
+function toManualHolding(e, eurInr) {
+  const rate = eurInr || 0;
+  const current = e.valueEur != null ? e.valueEur * rate : null;
+  const invested = e.investedEur != null ? e.investedEur * rate : null;
+  const pnl = invested != null && current != null ? current - invested : null;
+  const pnlPct = invested ? (pnl / invested) * 100 : null;
+  return {
+    id: e.id,
+    symbol: e.name,
+    exchange: "EUR",
+    assetType: "ESOP",
+    broker: "Amundi",
+    investmentCode: e.id,
+    unitPrice: e.unitPriceEur != null ? e.unitPriceEur * rate : null,
+    quantity: e.units != null ? e.units : null,
+    invested, current,
+    pnl, pnlPct, absoluteReturn: pnl, absoluteReturnPct: pnlPct,
+    dividendEarned: null, totalReturn: pnl, totalReturnPct: pnlPct,
+    returnWithDividends: pnlPct, returnWithoutDividends: pnlPct,
+    xirr: null, benchmarkXirr: null, cagr: null,
+    source: "manual",
+    eurValue: e.valueEur, investedEur: e.investedEur ?? null, eurInr: rate,
+    asOf: e.asOf || null, note: e.note || null,
+  };
 }
 
 function getSession(user, broker) {
@@ -148,8 +194,86 @@ app.get("/api/status", wrap(async (_req, res) => {
         rateLimited: broker === "truthifi",
       };
     }
+    if (USER_MANUAL[user]) {
+      const entries = loadManualEntries(user);
+      const eurInr = await fetchEurInr();
+      out[user].brokers.manual = {
+        label: "Manual · ESOP (EUR)",
+        manual: true,
+        connected: true,
+        authed: entries.length > 0,
+        tools: [],
+        loginUrl: null,
+        entries,
+        cachedHoldings: entries.map((e) => toManualHolding(e, eurInr)),
+        cachedAt: loadCache()[user]?.manual?.savedAt || null,
+        eurInr,
+      };
+    }
   }
   res.json({ users: out });
+}));
+
+app.get("/api/:user/manual", wrap(async (req, res) => {
+  const { user } = req.params;
+  if (!USERS[user] || !USER_MANUAL[user]) return res.status(404).json({ error: "Unknown user" });
+  const entries = loadManualEntries(user);
+  const eurInr = await fetchEurInr();
+  res.json({ entries, holdings: entries.map((e) => toManualHolding(e, eurInr)), eurInr });
+}));
+
+app.post("/api/:user/manual", wrap(async (req, res) => {
+  const { user } = req.params;
+  if (!USERS[user] || !USER_MANUAL[user]) return res.status(404).json({ error: "Unknown user" });
+  const { name, valueEur, units, unitPriceEur, investedEur, asOf, note } = req.body || {};
+  if (!name || !(Number(valueEur) > 0)) return res.status(400).json({ error: "name and valueEur are required" });
+  const entries = loadManualEntries(user);
+  const entry = {
+    id: crypto.randomUUID(),
+    name: String(name),
+    valueEur: Number(valueEur),
+    units: units != null && units !== "" ? Number(units) : null,
+    unitPriceEur: unitPriceEur != null && unitPriceEur !== "" ? Number(unitPriceEur) : null,
+    investedEur: investedEur != null && investedEur !== "" ? Number(investedEur) : null,
+    asOf: asOf || null,
+    note: note || null,
+    addedAt: new Date().toISOString(),
+  };
+  entries.push(entry);
+  saveManualEntries(user, entries);
+  const eurInr = await fetchEurInr();
+  res.json({ ok: true, holding: toManualHolding(entry, eurInr) });
+}));
+
+app.put("/api/:user/manual/:id", wrap(async (req, res) => {
+  const { user, id } = req.params;
+  if (!USERS[user] || !USER_MANUAL[user]) return res.status(404).json({ error: "Unknown user" });
+  const entries = loadManualEntries(user);
+  const idx = entries.findIndex((e) => e.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Entry not found" });
+  const { name, valueEur, units, unitPriceEur, investedEur, asOf, note } = req.body || {};
+  const e = entries[idx];
+  entries[idx] = {
+    ...e,
+    ...(name != null && { name: String(name) }),
+    ...(valueEur != null && valueEur !== "" && { valueEur: Number(valueEur) }),
+    ...(units != null && { units: units === "" ? null : Number(units) }),
+    ...(unitPriceEur != null && { unitPriceEur: unitPriceEur === "" ? null : Number(unitPriceEur) }),
+    ...(investedEur != null && { investedEur: investedEur === "" ? null : Number(investedEur) }),
+    ...(asOf != null && { asOf: asOf || null }),
+    ...(note != null && { note: note || null }),
+  };
+  saveManualEntries(user, entries);
+  const eurInr = await fetchEurInr();
+  res.json({ ok: true, holding: toManualHolding(entries[idx], eurInr) });
+}));
+
+app.delete("/api/:user/manual/:id", wrap(async (req, res) => {
+  const { user, id } = req.params;
+  if (!USERS[user] || !USER_MANUAL[user]) return res.status(404).json({ error: "Unknown user" });
+  const entries = loadManualEntries(user).filter((e) => e.id !== id);
+  saveManualEntries(user, entries);
+  res.json({ ok: true });
 }));
 
 // Pull the latest cache JSON from Google Drive and replace the local cache
@@ -258,6 +382,21 @@ async function fetchUsdInr() {
     _usdInrCache = { rate, ts: Date.now() };
     return rate;
   } catch { return _usdInrCache?.rate || 84; }
+}
+
+// Fetch current EUR/INR rate from Yahoo Finance (cached 5 min) — used to
+// live-convert manually-entered EUR assets (e.g. a foreign ESOP account).
+let _eurInrCache = null;
+async function fetchEurInr() {
+  if (_eurInrCache && Date.now() - _eurInrCache.ts < 5 * 60 * 1000) return _eurInrCache.rate;
+  try {
+    const r = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/EURINR=X?interval=1d&range=1d",
+      { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" } });
+    const d = await r.json();
+    const rate = d?.chart?.result?.[0]?.meta?.regularMarketPrice || 90;
+    _eurInrCache = { rate, ts: Date.now() };
+    return rate;
+  } catch { return _eurInrCache?.rate || 90; }
 }
 
 app.get("/api/:user/:broker/tools", wrap(async (req, res) => {
