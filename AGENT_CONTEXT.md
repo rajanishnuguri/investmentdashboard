@@ -162,6 +162,7 @@ Single-file React app, no bundler. Uses React 18 globals (`React`, `ReactDOM`, `
 | `HoldingGroup` | One asset class section with subtotal row |
 | `HoldingRow` | Single holding: name, units×price, invested, current, return % |
 | `Allocation` | Pie chart — toggle "by asset class" or "by holding" |
+| `Health` | Portfolio checkup: blended return, concentration flags, emergency fund coverage, Direct-vs-Regular fund cost drag |
 | `Trajectory` | FIRE calculator with sliders + line chart |
 | `DataRoom` | Raw MCP tool explorer |
 

@@ -59,6 +59,12 @@ const USER_BROKERS = {
 // no MCP server). Stored in their native currency, converted to INR live.
 const USER_MANUAL = { rajanish: true };
 
+// Users who can track liabilities, a target allocation, and named goals.
+// All INR-native features, no currency conversion needed.
+const USER_LIABILITIES = { rajanish: true, aswini: true };
+const USER_TARGET_ALLOCATION = { rajanish: true, aswini: true };
+const USER_GOALS = { rajanish: true, aswini: true };
+
 // Sessions keyed by "user::broker"
 const sessions = new Map();
 
@@ -98,6 +104,57 @@ function saveManualEntries(user, entries) {
   const cache = loadCache();
   if (!cache[user]) cache[user] = {};
   cache[user].manual = { entries, savedAt: new Date().toISOString() };
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  saveToDrive(cache).catch(() => {});
+}
+
+function loadLiabilities(user) {
+  const cache = loadCache();
+  return cache[user]?.liabilities?.entries || [];
+}
+function saveLiabilities(user, entries) {
+  const cache = loadCache();
+  if (!cache[user]) cache[user] = {};
+  cache[user].liabilities = { entries, savedAt: new Date().toISOString() };
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  saveToDrive(cache).catch(() => {});
+}
+
+function loadTargetAllocation(user) {
+  const cache = loadCache();
+  return cache[user]?.targetAllocation?.targets || null;
+}
+function saveTargetAllocation(user, targets) {
+  const cache = loadCache();
+  if (!cache[user]) cache[user] = {};
+  cache[user].targetAllocation = { targets, savedAt: new Date().toISOString() };
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  saveToDrive(cache).catch(() => {});
+}
+
+function loadGoals(user) {
+  const cache = loadCache();
+  return cache[user]?.goals?.entries || [];
+}
+function saveGoals(user, entries) {
+  const cache = loadCache();
+  if (!cache[user]) cache[user] = {};
+  cache[user].goals = { entries, savedAt: new Date().toISOString() };
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  saveToDrive(cache).catch(() => {});
+}
+
+// One net-worth snapshot per calendar day per user, so a trend can build up
+// over time without writing (and Drive-syncing) on every single page load.
+function upsertHistorySnapshot(user, current, invested) {
+  const cache = loadCache();
+  if (!cache.history) cache.history = {};
+  if (!cache.history[user]) cache.history[user] = [];
+  const today = new Date().toISOString().slice(0, 10);
+  const list = cache.history[user];
+  const last = list[list.length - 1];
+  if (last && last.date === today) return; // already snapshotted today
+  list.push({ date: today, current, invested });
   fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
   saveToDrive(cache).catch(() => {});
 }
@@ -177,11 +234,15 @@ app.get("/api/status", wrap(async (_req, res) => {
   const out = {};
   for (const [user, uCfg] of Object.entries(USERS)) {
     out[user] = { label: uCfg.label, brokers: {} };
+    let assetsTotal = 0, investedTotal = 0;
     for (const broker of (USER_BROKERS[user] || [])) {
       const bCfg = BROKERS[broker];
       const cached = cache[user]?.[broker];
       const key = `${user}::${broker}`;
       const s = sessions.get(key);
+      const holdings = cached?.holdings || [];
+      assetsTotal += holdings.reduce((sum, h) => sum + (h.current || 0), 0);
+      investedTotal += holdings.reduce((sum, h) => sum + (h.invested || 0), 0);
       out[user].brokers[broker] = {
         label: bCfg.label,
         connected: !!s?.connected,
@@ -197,6 +258,9 @@ app.get("/api/status", wrap(async (_req, res) => {
     if (USER_MANUAL[user]) {
       const entries = loadManualEntries(user);
       const eurInr = await fetchEurInr();
+      const manualHoldings = entries.map((e) => toManualHolding(e, eurInr));
+      assetsTotal += manualHoldings.reduce((sum, h) => sum + (h.current || 0), 0);
+      investedTotal += manualHoldings.reduce((sum, h) => sum + (h.invested || 0), 0);
       out[user].brokers.manual = {
         label: "Manual · ESOP (EUR)",
         manual: true,
@@ -205,11 +269,27 @@ app.get("/api/status", wrap(async (_req, res) => {
         tools: [],
         loginUrl: null,
         entries,
-        cachedHoldings: entries.map((e) => toManualHolding(e, eurInr)),
+        cachedHoldings: manualHoldings,
         cachedAt: loadCache()[user]?.manual?.savedAt || null,
         eurInr,
       };
     }
+    let liabilitiesTotal = 0;
+    if (USER_LIABILITIES[user]) {
+      const entries = loadLiabilities(user);
+      liabilitiesTotal = entries.reduce((sum, e) => sum + (e.amount || 0), 0);
+      out[user].liabilities = { entries, total: liabilitiesTotal, savedAt: cache[user]?.liabilities?.savedAt || null };
+    }
+    if (USER_TARGET_ALLOCATION[user]) {
+      out[user].targetAllocation = loadTargetAllocation(user);
+    }
+    if (USER_GOALS[user]) {
+      out[user].goals = loadGoals(user);
+    }
+    out[user].netWorth = assetsTotal - liabilitiesTotal;
+    out[user].assetsTotal = assetsTotal;
+    out[user].history = cache.history?.[user] || [];
+    if (assetsTotal > 0) upsertHistorySnapshot(user, assetsTotal, investedTotal);
   }
   res.json({ users: out });
 }));
@@ -273,6 +353,123 @@ app.delete("/api/:user/manual/:id", wrap(async (req, res) => {
   if (!USERS[user] || !USER_MANUAL[user]) return res.status(404).json({ error: "Unknown user" });
   const entries = loadManualEntries(user).filter((e) => e.id !== id);
   saveManualEntries(user, entries);
+  res.json({ ok: true });
+}));
+
+// ─── Liabilities — loans, credit cards, anything owed. INR-native. ───
+app.post("/api/:user/liabilities", wrap(async (req, res) => {
+  const { user } = req.params;
+  if (!USERS[user] || !USER_LIABILITIES[user]) return res.status(404).json({ error: "Unknown user" });
+  const { name, amount, type, rate, note } = req.body || {};
+  if (!name || !(Number(amount) > 0)) return res.status(400).json({ error: "name and amount are required" });
+  const entries = loadLiabilities(user);
+  const entry = {
+    id: crypto.randomUUID(),
+    name: String(name),
+    amount: Number(amount),
+    type: type || null,
+    rate: rate != null && rate !== "" ? Number(rate) : null,
+    note: note || null,
+    addedAt: new Date().toISOString(),
+  };
+  entries.push(entry);
+  saveLiabilities(user, entries);
+  res.json({ ok: true, entry });
+}));
+
+app.put("/api/:user/liabilities/:id", wrap(async (req, res) => {
+  const { user, id } = req.params;
+  if (!USERS[user] || !USER_LIABILITIES[user]) return res.status(404).json({ error: "Unknown user" });
+  const entries = loadLiabilities(user);
+  const idx = entries.findIndex((e) => e.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Entry not found" });
+  const { name, amount, type, rate, note } = req.body || {};
+  entries[idx] = {
+    ...entries[idx],
+    ...(name != null && { name: String(name) }),
+    ...(amount != null && amount !== "" && { amount: Number(amount) }),
+    ...(type != null && { type: type || null }),
+    ...(rate != null && { rate: rate === "" ? null : Number(rate) }),
+    ...(note != null && { note: note || null }),
+  };
+  saveLiabilities(user, entries);
+  res.json({ ok: true, entry: entries[idx] });
+}));
+
+app.delete("/api/:user/liabilities/:id", wrap(async (req, res) => {
+  const { user, id } = req.params;
+  if (!USERS[user] || !USER_LIABILITIES[user]) return res.status(404).json({ error: "Unknown user" });
+  const entries = loadLiabilities(user).filter((e) => e.id !== id);
+  saveLiabilities(user, entries);
+  res.json({ ok: true });
+}));
+
+// ─── Target allocation — one object of {assetClassKey: targetPct} ───
+app.put("/api/:user/target-allocation", wrap(async (req, res) => {
+  const { user } = req.params;
+  if (!USERS[user] || !USER_TARGET_ALLOCATION[user]) return res.status(404).json({ error: "Unknown user" });
+  const targets = req.body?.targets;
+  if (!targets || typeof targets !== "object") return res.status(400).json({ error: "targets object required" });
+  const clean = {};
+  for (const [k, v] of Object.entries(targets)) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) clean[k] = n;
+  }
+  saveTargetAllocation(user, clean);
+  res.json({ ok: true, targets: clean });
+}));
+
+// ─── Named goals — house, education, retirement... each with its own target ───
+app.post("/api/:user/goals", wrap(async (req, res) => {
+  const { user } = req.params;
+  if (!USERS[user] || !USER_GOALS[user]) return res.status(404).json({ error: "Unknown user" });
+  const { name, targetAmount, targetDate, currentAmount, monthlyContribution, expectedReturn, note } = req.body || {};
+  if (!name || !(Number(targetAmount) > 0) || !targetDate) {
+    return res.status(400).json({ error: "name, targetAmount and targetDate are required" });
+  }
+  const entries = loadGoals(user);
+  const entry = {
+    id: crypto.randomUUID(),
+    name: String(name),
+    targetAmount: Number(targetAmount),
+    targetDate: String(targetDate),
+    currentAmount: currentAmount != null && currentAmount !== "" ? Number(currentAmount) : 0,
+    monthlyContribution: monthlyContribution != null && monthlyContribution !== "" ? Number(monthlyContribution) : 0,
+    expectedReturn: expectedReturn != null && expectedReturn !== "" ? Number(expectedReturn) : 10,
+    note: note || null,
+    addedAt: new Date().toISOString(),
+  };
+  entries.push(entry);
+  saveGoals(user, entries);
+  res.json({ ok: true, entry });
+}));
+
+app.put("/api/:user/goals/:id", wrap(async (req, res) => {
+  const { user, id } = req.params;
+  if (!USERS[user] || !USER_GOALS[user]) return res.status(404).json({ error: "Unknown user" });
+  const entries = loadGoals(user);
+  const idx = entries.findIndex((e) => e.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Entry not found" });
+  const { name, targetAmount, targetDate, currentAmount, monthlyContribution, expectedReturn, note } = req.body || {};
+  entries[idx] = {
+    ...entries[idx],
+    ...(name != null && { name: String(name) }),
+    ...(targetAmount != null && targetAmount !== "" && { targetAmount: Number(targetAmount) }),
+    ...(targetDate != null && targetDate !== "" && { targetDate: String(targetDate) }),
+    ...(currentAmount != null && { currentAmount: currentAmount === "" ? 0 : Number(currentAmount) }),
+    ...(monthlyContribution != null && { monthlyContribution: monthlyContribution === "" ? 0 : Number(monthlyContribution) }),
+    ...(expectedReturn != null && expectedReturn !== "" && { expectedReturn: Number(expectedReturn) }),
+    ...(note != null && { note: note || null }),
+  };
+  saveGoals(user, entries);
+  res.json({ ok: true, entry: entries[idx] });
+}));
+
+app.delete("/api/:user/goals/:id", wrap(async (req, res) => {
+  const { user, id } = req.params;
+  if (!USERS[user] || !USER_GOALS[user]) return res.status(404).json({ error: "Unknown user" });
+  const entries = loadGoals(user).filter((e) => e.id !== id);
+  saveGoals(user, entries);
   res.json({ ok: true });
 }));
 
@@ -398,6 +595,34 @@ async function fetchEurInr() {
     return rate;
   } catch { return _eurInrCache?.rate || 90; }
 }
+
+// 1-year trailing return for Nifty 50 / S&P 500 (cached 5 min) — an honest
+// caveat applies: this is a fixed trailing window, while portfolio return is
+// "since cost basis" per holding, so the periods aren't perfectly aligned.
+let _benchmarkCache = null;
+async function fetchBenchmarks() {
+  if (_benchmarkCache && Date.now() - _benchmarkCache.ts < 5 * 60 * 1000) return _benchmarkCache.data;
+  const symbols = { nifty50: { sym: "%5ENSEI", label: "Nifty 50" }, sp500: { sym: "%5EGSPC", label: "S&P 500" } };
+  const data = {};
+  for (const [key, { sym, label }] of Object.entries(symbols)) {
+    try {
+      const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1y`,
+        { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" } });
+      const d = await r.json();
+      const result = d?.chart?.result?.[0];
+      const closes = (result?.indicators?.quote?.[0]?.close || []).filter((c) => c != null);
+      const first = closes[0];
+      const last = result?.meta?.regularMarketPrice ?? closes[closes.length - 1];
+      data[key] = (first && last) ? { label, returnPct: ((last - first) / first) * 100 } : null;
+    } catch { data[key] = null; }
+  }
+  _benchmarkCache = { data, ts: Date.now() };
+  return data;
+}
+
+app.get("/api/benchmarks", wrap(async (_req, res) => {
+  res.json(await fetchBenchmarks());
+}));
 
 app.get("/api/:user/:broker/tools", wrap(async (req, res) => {
   const { user, broker } = req.params;

@@ -40,6 +40,13 @@ const HOLDING_HINTS = [
 // Indian equity is already pulled from Kite/Zerodha to avoid double-counting.
 const INDMONEY_ASSET_TYPES = ["MF", "US_STOCK", "PPF", "EPF", "NPS", "BOND"];
 
+// INDmoney's tools/list MCP call has been observed to hang for the full
+// request timeout even immediately after a fresh, successful OAuth login —
+// connect() succeeds fine, only tool discovery stalls. Since we already know
+// its tool surface from prior successful syncs, skip discovery entirely for
+// this broker once authenticated and call the known tool directly.
+const KNOWN_TOOLS = { indmoney: ["networth_holdings"] };
+
 // Expand a tool name into one or more {name, args, label} calls.
 // Some tools (e.g. INDmoney's networth_holdings) need a required argument.
 function toolCalls(name, brokerKey) {
@@ -168,8 +175,10 @@ export class BrokerSession {
     this.client = null;
     this.transport = null;
     this.listToolsError = null;
+    const t0 = Date.now();
     await this.ensureClient();
     this.authed = this.tools.length > 0;
+    console.log(`[${this.key}] setAuthToken: ensureClient took ${Date.now()-t0}ms, tools.length=${this.tools.length}, authed=${this.authed}, listToolsError=${this.listToolsError||"none"}`);
   }
 
   // Kick off the broker login. Returns a URL the user must open to authenticate.
@@ -178,8 +187,17 @@ export class BrokerSession {
   async beginLogin() {
     await this.ensureClient();
 
-    // Server requires auth before listing tools — extract login URL from the error.
+    // Server requires auth before listing tools.
     if (this.listToolsError) {
+      // A generic auth-required error (INDmoney, Truthifi) should always go
+      // through the real OAuth 2.0 + PKCE flow in oauth.js — never a URL
+      // guessed from the error text. Some servers' error messages happen to
+      // echo their own MCP endpoint URL (e.g. "...failed for https://mcp.x/mcp"),
+      // which findLoginUrl() would wrongly extract as if it were a login page,
+      // opening a non-functional JSON-RPC endpoint instead of a real login screen.
+      if (/invalid_token|authentication required|access token required/i.test(this.listToolsError)) {
+        throw new Error(this.listToolsError);
+      }
       const url = findLoginUrl(this.listToolsError) || this._oauthLoginUrl();
       if (url) {
         this.loginUrl = url;
@@ -195,7 +213,8 @@ export class BrokerSession {
       const probe = pickTool(this.tools, HOLDING_HINTS);
       if (probe) {
         try {
-          const r = await this.client.callTool({ name: probe, arguments: {} });
+          const r = await withTimeout(this.client.callTool({ name: probe, arguments: {} }), 20000,
+            `${probe} did not respond within 20s.`);
           const url = findLoginUrl(textOf(r));
           if (url) { this.loginUrl = url; return { loginUrl: url, tool: probe }; }
           this.authed = true;
@@ -210,7 +229,8 @@ export class BrokerSession {
       }
       throw new Error("No login or portfolio tool exposed by this server.");
     }
-    const res = await this.client.callTool({ name: loginTool, arguments: {} });
+    const res = await withTimeout(this.client.callTool({ name: loginTool, arguments: {} }), 20000,
+      `${loginTool} did not respond within 20s.`);
     const url = findLoginUrl(textOf(res));
     this.loginUrl = url;
     if (!url) {
@@ -224,9 +244,22 @@ export class BrokerSession {
   // normalised holdings.
   async fetchPortfolio() {
     await this.ensureClient();
+    // Tool discovery itself is unreliable for some brokers even though the
+    // account is genuinely authenticated (accessToken was issued) — observed
+    // for INDmoney, whose tools/list hangs for the full timeout even right
+    // after a fresh login. Skip the retry (which would just hang again) and
+    // fall back straight to a hardcoded known tool list.
+    const hasFallback = this.accessToken && KNOWN_TOOLS[this.key];
     // If tools were unavailable at connect time (auth-gated), retry now —
     // the user may have just completed OAuth in the browser.
-    if (this.tools.length === 0) await this.refreshToolsAfterAuth();
+    if (this.tools.length === 0 && !hasFallback) await this.refreshToolsAfterAuth();
+    console.log(`[${this.key}] fetchPortfolio: tools.length=${this.tools.length} listToolsError=${this.listToolsError||"none"}`);
+
+    if (this.tools.length === 0 && hasFallback) {
+      console.log(`[${this.key}] tools/list unavailable but accessToken is set — using known tool list fallback.`);
+      this.tools = KNOWN_TOOLS[this.key].map((name) => ({ name }));
+    }
+
     // Still no tools after retry — treat as needing re-auth and fall back to
     // cache, even if the server didn't throw an explicit error. Some brokers
     // (e.g. Truthifi under its daily rate limit) return an empty tool list
@@ -240,6 +273,7 @@ export class BrokerSession {
     const wanted = this.tools
       .map((t) => t.name)
       .filter((n) => HOLDING_HINTS.some((h) => n.toLowerCase().includes(h)));
+    console.log(`[${this.key}] wanted tools:`, wanted);
 
     if (wanted.length === 0) {
       return { raw: {}, holdings: [], tools: this.tools.map((t) => t.name) };
@@ -250,16 +284,21 @@ export class BrokerSession {
     // Build a list of {name, args} calls — some tools need specific arguments.
     const calls = wanted.flatMap((name) => toolCalls(name, this.key));
     for (const { name, args, label } of calls) {
+      const t0 = Date.now();
       try {
-        const r = await this.client.callTool({ name, arguments: args || {} });
+        const r = await withTimeout(this.client.callTool({ name, arguments: args || {} }), 20000,
+          `${name} did not respond within 20s.`);
         const text = textOf(r);
+        console.log(`[${this.key}] call ${label||name} OK in ${Date.now()-t0}ms, text[0:120]=`, text.slice(0,120));
         const url = findLoginUrl(text);
         if (url && /login|auth|consent|sign.?in/i.test(text)) {
+          console.log(`[${this.key}] call ${label||name} looked like a login prompt — url=${url}`);
           needsLogin = url;
           continue;
         }
         raw[label || name] = tryJson(text) ?? text;
       } catch (e) {
+        console.log(`[${this.key}] call ${label||name} FAILED after ${Date.now()-t0}ms:`, String(e?.message||e));
         raw[label || name] = { error: String(e?.message || e) };
       }
     }
@@ -276,7 +315,8 @@ export class BrokerSession {
 
   async callTool(name, args) {
     await this.ensureClient();
-    const r = await this.client.callTool({ name, arguments: args || {} });
+    const r = await withTimeout(this.client.callTool({ name, arguments: args || {} }), 20000,
+      `${name} did not respond within 20s.`);
     const text = textOf(r);
     return { text, json: tryJson(text), isError: !!r.isError };
   }
@@ -296,12 +336,16 @@ export class BrokerSession {
   // becomes authorised. Re-fetch the tool list so portfolio calls can proceed.
   async refreshToolsAfterAuth() {
     if (!this.client) return;
+    const t0 = Date.now();
     try {
-      const listed = await this.client.listTools();
+      const listed = await withTimeout(this.client.listTools(), 20000,
+        `${this.url} did not respond to listTools() within 20s (refresh).`);
       this.tools = listed.tools || [];
       this.listToolsError = null;
+      console.log(`[${this.key}] refreshToolsAfterAuth OK in ${Date.now()-t0}ms, tools.length=${this.tools.length}`);
     } catch (e) {
       this.lastError = String(e?.message || e);
+      console.log(`[${this.key}] refreshToolsAfterAuth FAILED after ${Date.now()-t0}ms:`, this.lastError);
     }
   }
 

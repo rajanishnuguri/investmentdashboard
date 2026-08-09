@@ -193,6 +193,19 @@ const api = {
   editManual: (u,id,body)=>fetch(`/api/${u}/manual/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
   deleteManual: (u,id)=>fetch(`/api/${u}/manual/${id}`,{method:"DELETE"}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  addLiability: (u,body)=>fetch(`/api/${u}/liabilities`,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  editLiability: (u,id,body)=>fetch(`/api/${u}/liabilities/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  deleteLiability: (u,id)=>fetch(`/api/${u}/liabilities/${id}`,{method:"DELETE"}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  setTargetAllocation: (u,targets)=>fetch(`/api/${u}/target-allocation`,{method:"PUT",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({targets})}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  addGoal: (u,body)=>fetch(`/api/${u}/goals`,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  editGoal: (u,id,body)=>fetch(`/api/${u}/goals/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  deleteGoal: (u,id)=>fetch(`/api/${u}/goals/${id}`,{method:"DELETE"}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  benchmarks: ()=>fetch("/api/benchmarks").then(r=>r.json()),
 };
 
 function StatusDot({color, glow}){
@@ -385,9 +398,113 @@ function ManualAssetsCard({user, st, onRefresh}){
   );
 }
 
+const EMPTY_LIABILITY_FORM = {name:"",amount:"",type:"",rate:"",note:""};
+
+/* ─── Liabilities card — loans, credit cards, anything owed ─── */
+function LiabilitiesCard({user, entries, onRefresh}){
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(EMPTY_LIABILITY_FORM);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const list = entries || [];
+  const total = list.reduce((s,e)=>s+(e.amount||0),0);
+
+  function startAdd(){ setForm(EMPTY_LIABILITY_FORM); setError(null); setEditing("new"); }
+  function startEdit(e){
+    setForm({name:e.name||"", amount:e.amount??"", type:e.type||"", rate:e.rate??"", note:e.note||""});
+    setError(null); setEditing(e.id);
+  }
+  async function submit(){
+    if(!form.name || !form.amount){ setError("Name and amount are required."); return; }
+    setBusy(true); setError(null);
+    try{
+      const r = editing==="new" ? await api.addLiability(user, form) : await api.editLiability(user, editing, form);
+      if(!r.ok) throw new Error(r.error||"save failed");
+      setEditing(null);
+      await onRefresh();
+    }catch(e){ setError(String(e.message||e)); }
+    finally{ setBusy(false); }
+  }
+  async function remove(id){
+    setBusy(true);
+    try{ await api.deleteLiability(user, id); await onRefresh(); }
+    finally{ setBusy(false); }
+  }
+
+  const inputStyle = {background:C.panelSolid,border:C.border,color:C.text,fontSize:12.5,width:"100%"};
+
+  return (
+    <Panel className="p-4" style={{borderColor:"rgba(255,97,120,0.28)"}}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <StatusDot color={list.length?C.neg:C.muted}/>
+          <span className="truncate" style={{color:C.text,fontSize:13.5,fontWeight:600}}>Liabilities</span>
+        </div>
+        <button onClick={startAdd} disabled={busy}
+          className="rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5 flex-shrink-0"
+          style={{background:C.panel2,color:C.text,fontSize:12,fontWeight:700,border:C.border}}>
+          <Icon name="link" size={12}/>Add
+        </button>
+      </div>
+      <div className="mt-1.5" style={{color:C.sub,fontSize:11.5}}>
+        {list.length ? `${cr(total)} owed · ${list.length} entr${list.length!==1?"ies":"y"}` : "No debts tracked — add a loan or credit card to see true net worth"}
+      </div>
+
+      {list.length>0 && (
+        <div className="mt-3 space-y-2">
+          {list.map(e=>(
+            <div key={e.id} className="flex items-center justify-between gap-2 rounded-xl px-3 py-2" style={{background:C.panel2}}>
+              <div className="min-w-0">
+                <div className="truncate" style={{color:C.text,fontSize:12.5,fontWeight:600}}>{e.name}</div>
+                <div className="truncate" style={{color:C.muted,fontSize:10.5}}>
+                  {[e.type, e.rate!=null?`${e.rate}% p.a.`:null, e.note].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className="font-mono" style={{color:C.neg,fontSize:12,fontWeight:600}}>{cr(e.amount)}</span>
+                <button onClick={()=>startEdit(e)} disabled={busy} className="rounded-lg p-1.5" style={{background:C.panelSolid,border:C.border}}>
+                  <Icon name="refresh" size={12} color={C.sub}/>
+                </button>
+                <button onClick={()=>remove(e.id)} disabled={busy} className="rounded-lg p-1.5" style={{background:C.panelSolid,border:C.border}}>
+                  <Icon name="alert" size={12} color={C.neg}/>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-3 rounded-xl p-3 space-y-2" style={{background:C.panel2,border:C.border}}>
+          <input placeholder="Name (e.g. Home loan — HDFC)" value={form.name}
+            onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          <div className="grid grid-cols-2 gap-2">
+            <input placeholder="Outstanding amount (₹)" type="number" value={form.amount}
+              onChange={e=>setForm({...form,amount:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder="Interest rate % (optional)" type="number" value={form.rate}
+              onChange={e=>setForm({...form,rate:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          </div>
+          <input placeholder="Type (optional, e.g. Home loan / Credit card)" value={form.type}
+            onChange={e=>setForm({...form,type:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          <input placeholder="Note (optional)" value={form.note}
+            onChange={e=>setForm({...form,note:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          {error && <div style={{color:C.neg,fontSize:11.5}}>{error}</div>}
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={()=>setEditing(null)} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.panelSolid,color:C.sub,fontSize:12,fontWeight:600,border:C.border}}>Cancel</button>
+            <button onClick={submit} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.go,color:C.btnText,fontSize:12,fontWeight:700}}>{busy?"Saving…":"Save"}</button>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 /* ─── Overview ─── */
-function Overview({total, allHoldings, a, proj, go}){
-  const frac = proj.todayFI ? Math.min(1, total.current/proj.todayFI) : 0;
+function Overview({total, allHoldings, a, proj, go, netWorth, liabilitiesTotal, history}){
+  const nw = netWorth!=null ? netWorth : total.current;
+  const frac = proj.todayFI ? Math.min(1, nw/proj.todayFI) : 0;
   const gainPct = total.invested ? (total.pnl/total.invested)*100 : 0;
 
   const byClass = useMemo(()=>{
@@ -416,9 +533,9 @@ function Overview({total, allHoldings, a, proj, go}){
             </div>
           </div>
           <div className="flex-1 min-w-0 text-center sm:text-left">
-            <Eyebrow>Total net worth</Eyebrow>
+            <Eyebrow>{liabilitiesTotal>0?"Net worth":"Total net worth"}</Eyebrow>
             <div className="mt-1 font-mono" style={{color:C.text,fontSize:38,fontWeight:700,letterSpacing:"-0.02em",lineHeight:1.1}}>
-              {total.current?cr(total.current):"—"}
+              {nw?cr(nw):"—"}
             </div>
             <div className="mt-3 flex flex-wrap justify-center sm:justify-start gap-5">
               <div>
@@ -434,6 +551,10 @@ function Overview({total, allHoldings, a, proj, go}){
               {total.dividends>0 && <div>
                 <div style={{color:C.muted,fontSize:11}}>Dividends</div>
                 <div className="font-mono" style={{color:C.pos,fontSize:15,fontWeight:600}}>{cr(total.dividends)}</div>
+              </div>}
+              {liabilitiesTotal>0 && <div>
+                <div style={{color:C.muted,fontSize:11}}>Liabilities</div>
+                <div className="font-mono" style={{color:C.neg,fontSize:15,fontWeight:600}}>-{cr(liabilitiesTotal)}</div>
               </div>}
             </div>
             {go && (
@@ -476,6 +597,28 @@ function Overview({total, allHoldings, a, proj, go}){
           </div>
         </Panel>
       )}
+
+      <Panel className="p-5">
+        <Eyebrow>Net worth over time</Eyebrow>
+        {history && history.length>=2 ? (
+          <div style={{width:"100%",height:200}} className="mt-3">
+            <ResponsiveContainer>
+              <LineChart data={history}>
+                <CartesianGrid stroke={C.line} vertical={false}/>
+                <XAxis dataKey="date" stroke={C.muted} fontSize={10.5}
+                  tickFormatter={d=>new Date(d).toLocaleDateString("en-IN",{day:"numeric",month:"short"})}/>
+                <YAxis stroke={C.muted} fontSize={10.5} tickFormatter={cr} width={64}/>
+                <Tooltip content={<ChartTip fmt={cr}/>}/>
+                <Line type="monotone" dataKey="current" name="Net worth" stroke={C.go} strokeWidth={2.5} dot={false} isAnimationActive={false}/>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="mt-2" style={{color:C.muted,fontSize:12.5}}>
+            One snapshot is saved automatically each day you open this dashboard — come back tomorrow to start seeing a trend.
+          </div>
+        )}
+      </Panel>
     </div>
   );
 }
@@ -679,6 +822,357 @@ function Allocation({allHoldings}){
   );
 }
 
+/* ─── Health check — the analysis an advisor would run, not just the pulled data ─── */
+const LIQUID_RE = /liquid|arbitrage|overnight|savings account/i;
+const DIRECT_RE = /\bdirect\b/i;
+const HOLDING_FLAG_PCT = 15;   // any single holding above this % of net worth gets flagged
+const CLASS_FLAG_PCT = 45;     // any asset class above this % gets flagged
+const REGULAR_DRAG_PCT = 0.75; // assumed extra annual expense-ratio cost of a Regular-plan MF vs Direct
+
+function HealthStat({label, value, tone, sub}){
+  return (
+    <div>
+      <div style={{color:C.muted,fontSize:11}}>{label}</div>
+      <div className="font-mono" style={{color:tone||C.text,fontSize:20,fontWeight:700,lineHeight:1.2}}>{value}</div>
+      {sub && <div style={{color:C.muted,fontSize:11,marginTop:2}}>{sub}</div>}
+    </div>
+  );
+}
+
+function FlagRow({name, pct, value}){
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl px-3 py-2" style={{background:C.panel2}}>
+      <span className="truncate" style={{color:C.text,fontSize:12.5,fontWeight:600}}>{name}</span>
+      <span className="font-mono flex-shrink-0" style={{color:C.amber,fontSize:12,fontWeight:600}}>{pct.toFixed(1)}% · {cr(value)}</span>
+    </div>
+  );
+}
+
+function OkRow({children}){
+  return (
+    <div className="flex items-center gap-2 rounded-xl px-3 py-2.5" style={{background:C.goSoft}}>
+      <Icon name="up" size={13} color={C.go}/>
+      <span style={{color:C.text,fontSize:12.5}}>{children}</span>
+    </div>
+  );
+}
+
+function BenchmarkPanel({gainPct}){
+  const [data,setData] = useState(null);
+  const [failed,setFailed] = useState(false);
+  useEffect(()=>{ api.benchmarks().then(setData).catch(()=>setFailed(true)); },[]);
+  return (
+    <Panel className="p-5">
+      <Eyebrow>Benchmark (1-year trailing)</Eyebrow>
+      <div className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
+        <HealthStat label="Your portfolio (absolute)" value={gainPct!=null?pct(gainPct):"—"} tone={gainPct>=0?C.pos:C.neg}/>
+        <HealthStat label="Nifty 50" value={data?.nifty50?pct(data.nifty50.returnPct):(failed?"—":"…")}
+          tone={data?.nifty50?.returnPct>=0?C.pos:C.neg}/>
+        <HealthStat label="S&P 500" value={data?.sp500?pct(data.sp500.returnPct):(failed?"—":"…")}
+          tone={data?.sp500?.returnPct>=0?C.pos:C.neg}/>
+      </div>
+      <div className="mt-3" style={{color:C.muted,fontSize:11,lineHeight:1.5}}>
+        Indices are trailing 1-year from today. Your portfolio figure is absolute return since broker-reported cost basis,
+        which spans a different window per holding — directionally useful, not a precise apples-to-apples comparison.
+      </div>
+    </Panel>
+  );
+}
+
+function TargetAllocationPanel({allHoldings, netWorth, targetAllocation, user, onRefresh}){
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const byClass = useMemo(()=>{
+    const m = {};
+    for(const h of allHoldings){
+      const g = classifyHolding(h);
+      m[g.key] = m[g.key] || {key:g.key, label:g.label, color:g.color, value:0};
+      m[g.key].value += h.current||0;
+    }
+    return Object.values(m);
+  },[allHoldings]);
+
+  const classKeys = useMemo(()=>{
+    const keys = new Set(byClass.map(c=>c.key));
+    if(targetAllocation) Object.keys(targetAllocation).forEach(k=>keys.add(k));
+    return Array.from(keys);
+  },[byClass, targetAllocation]);
+
+  function labelFor(key){ return byClass.find(c=>c.key===key)?.label || ASSET_GROUPS.find(g=>g.key===key)?.label || key; }
+  function colorFor(key){ return byClass.find(c=>c.key===key)?.color || ASSET_GROUPS.find(g=>g.key===key)?.color || "#8492A8"; }
+
+  function startEdit(){
+    const init = {};
+    for(const key of classKeys) init[key] = targetAllocation?.[key] ?? "";
+    setForm(init); setError(null); setEditing(true);
+  }
+  async function submit(){
+    const targets = {};
+    for(const [k,v] of Object.entries(form)){
+      const n = parseFloat(v);
+      if(Number.isFinite(n) && n>0) targets[k] = n;
+    }
+    if(Object.keys(targets).length===0){ setError("Set at least one target percentage."); return; }
+    setBusy(true); setError(null);
+    try{
+      const r = await api.setTargetAllocation(user, targets);
+      if(!r.ok) throw new Error(r.error||"save failed");
+      setEditing(false);
+      await onRefresh();
+    }catch(e){ setError(String(e.message||e)); }
+    finally{ setBusy(false); }
+  }
+
+  const rows = useMemo(()=>classKeys.map(key=>{
+    const value = byClass.find(c=>c.key===key)?.value || 0;
+    const currentPct = netWorth ? (value/netWorth)*100 : 0;
+    const targetPct = targetAllocation?.[key] || 0;
+    const driftPct = currentPct - targetPct;
+    return {key, label:labelFor(key), color:colorFor(key), value, currentPct, targetPct, driftPct, driftValue:(driftPct/100)*netWorth};
+  }).sort((a,b)=>b.currentPct-a.currentPct),[classKeys, byClass, targetAllocation, netWorth]);
+
+  const inputStyle = {background:C.panelSolid,border:C.border,color:C.text,fontSize:12.5,width:76,textAlign:"right"};
+
+  return (
+    <Panel className="p-5">
+      <div className="flex items-center justify-between gap-2">
+        <Eyebrow style={{margin:0}}>Target allocation &amp; drift</Eyebrow>
+        {!editing && <button onClick={startEdit} className="rounded-lg px-2.5 py-1 flex-shrink-0"
+          style={{background:C.panel2,color:C.sub,fontSize:11,fontWeight:600,border:C.border}}>
+          {targetAllocation?"Edit":"Set targets"}
+        </button>}
+      </div>
+
+      {!editing && !targetAllocation && (
+        <div className="mt-3" style={{color:C.muted,fontSize:12.5}}>
+          Set a target mix once (e.g. 55% equity, 30% fixed, 15% gold) to see live drift every time fresh data loads.
+        </div>
+      )}
+
+      {!editing && targetAllocation && (
+        <div className="mt-3 space-y-3">
+          {rows.map(r=>(
+            <div key={r.key}>
+              <div className="flex items-center justify-between mb-1 gap-2" style={{fontSize:12}}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span style={{width:8,height:8,borderRadius:2,background:r.color,flexShrink:0}}/>
+                  <span className="truncate" style={{color:C.text,fontWeight:600}}>{r.label}</span>
+                </div>
+                <div className="flex items-center gap-2 font-mono flex-shrink-0">
+                  <span style={{color:C.muted}}>{r.currentPct.toFixed(1)}% of {r.targetPct.toFixed(0)}%</span>
+                  <span style={{color:Math.abs(r.driftPct)<5?C.muted:(r.driftPct>0?C.amber:C.rajanish),minWidth:96,textAlign:"right"}}>
+                    {r.driftPct>0?"+":""}{r.driftPct.toFixed(1)}% · {cr(Math.abs(r.driftValue))}
+                  </span>
+                </div>
+              </div>
+              <div style={{position:"relative",height:6,borderRadius:99,background:"rgba(255,255,255,0.07)"}}>
+                <div style={{height:"100%",width:`${Math.min(100,r.currentPct)}%`,background:r.color,borderRadius:99}}/>
+                <div style={{position:"absolute",top:-2,left:`${Math.min(100,r.targetPct)}%`,width:2,height:10,background:C.text,borderRadius:1}}/>
+              </div>
+            </div>
+          ))}
+          <div style={{color:C.muted,fontSize:10.5}}>The thin white marker on each bar is your target — the filled bar is where you actually are.</div>
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-3 space-y-2">
+          {classKeys.map(key=>(
+            <div key={key} className="flex items-center justify-between gap-3">
+              <span style={{color:C.sub,fontSize:12.5}}>{labelFor(key)}</span>
+              <div className="flex items-center gap-1">
+                <input type="number" value={form[key]??""} onChange={e=>setForm({...form,[key]:e.target.value})}
+                  placeholder="0" className="rounded-lg px-2.5 py-1" style={inputStyle}/>
+                <span style={{color:C.muted,fontSize:12}}>%</span>
+              </div>
+            </div>
+          ))}
+          {error && <div style={{color:C.neg,fontSize:11.5}}>{error}</div>}
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={()=>setEditing(false)} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.panelSolid,color:C.sub,fontSize:12,fontWeight:600,border:C.border}}>Cancel</button>
+            <button onClick={submit} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.go,color:C.btnText,fontSize:12,fontWeight:700}}>{busy?"Saving…":"Save targets"}</button>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function Health({allHoldings, total, netWorth, liabilitiesTotal, annualExpensesToday, proj, targetAllocation, user, onRefresh}){
+  if(!allHoldings.length) return (
+    <Panel className="p-10 text-center"><div style={{color:C.sub,fontSize:13.5}}>Load holdings to run a health check.</div></Panel>
+  );
+
+  const assetsTotal = total.current;
+  const nw = netWorth!=null ? netWorth : assetsTotal;
+  const gainPct = total.invested ? (total.pnl/total.invested)*100 : null;
+
+  const concentration = useMemo(()=>{
+    if(!assetsTotal) return {holdingFlags:[], classFlags:[]};
+    const holdingFlags = allHoldings
+      .filter(h=>h.current && (h.current/assetsTotal)*100 >= HOLDING_FLAG_PCT)
+      .map(h=>({name:h.symbol, pct:(h.current/assetsTotal)*100, value:h.current}))
+      .sort((a,b)=>b.pct-a.pct);
+    const byClass = {};
+    for(const h of allHoldings){
+      const g = classifyHolding(h);
+      byClass[g.key] = byClass[g.key] || {name:g.label, value:0};
+      byClass[g.key].value += h.current||0;
+    }
+    const classFlags = Object.values(byClass)
+      .filter(c=>(c.value/assetsTotal)*100 >= CLASS_FLAG_PCT)
+      .map(c=>({name:c.name, pct:(c.value/assetsTotal)*100, value:c.value}))
+      .sort((a,b)=>b.pct-a.pct);
+    return {holdingFlags, classFlags};
+  },[allHoldings, assetsTotal]);
+
+  const liquid = useMemo(()=>{
+    const value = allHoldings.filter(h=>LIQUID_RE.test(h.symbol||"")).reduce((s,h)=>s+(h.current||0),0);
+    const monthlyExpenses = (annualExpensesToday||0)/12;
+    const months = monthlyExpenses ? value/monthlyExpenses : null;
+    return {value, monthlyExpenses, months};
+  },[allHoldings, annualExpensesToday]);
+
+  const regularFunds = useMemo(()=>{
+    return allHoldings
+      .filter(h=>h.assetType==="MF" && !DIRECT_RE.test(h.symbol||""))
+      .map(h=>({name:h.symbol, value:h.current||0, drag:(h.current||0)*(REGULAR_DRAG_PCT/100)}))
+      .sort((a,b)=>b.value-a.value);
+  },[allHoldings]);
+
+  const debtRatio = assetsTotal>0 ? ((liabilitiesTotal||0)/assetsTotal)*100 : 0;
+  const emColor = liquid.months==null ? C.text : liquid.months>=6 ? C.go : liquid.months>=3 ? C.amber : C.neg;
+
+  const score = useMemo(()=>{
+    const parts = [];
+    const flagCount = concentration.holdingFlags.length + concentration.classFlags.length;
+    parts.push({label:"Diversification", value:Math.max(0,100-flagCount*25)});
+    if(liquid.months!=null) parts.push({label:"Emergency fund", value:Math.min(100,(liquid.months/6)*100)});
+    if(proj?.todayFI) parts.push({label:"On track for FI", value:Math.min(100,(nw/proj.todayFI)*100)});
+    if(assetsTotal>0) parts.push({label:"Debt ratio", value:Math.max(0,100-debtRatio*2)});
+    parts.push({label:"Fund costs", value:Math.max(0,100-regularFunds.length*20)});
+    const overall = parts.length ? parts.reduce((s,p)=>s+p.value,0)/parts.length : 0;
+    return {parts, overall};
+  },[concentration, liquid, proj, nw, assetsTotal, debtRatio, regularFunds]);
+
+  const scoreColor = score.overall>=75 ? C.go : score.overall>=50 ? C.amber : C.neg;
+
+  return (
+    <div className="space-y-4">
+      <Panel className="p-6 sm:p-7">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+          <div className="relative flex items-center justify-center mx-auto sm:mx-0" style={{width:128,height:128,flexShrink:0}}>
+            <Ring frac={score.overall/100} size={128}/>
+            <div className="absolute text-center">
+              <div className="font-mono" style={{color:scoreColor,fontSize:26,fontWeight:700,lineHeight:1}}>{Math.round(score.overall)}</div>
+              <div style={{color:C.muted,fontSize:10}}>health score</div>
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <Eyebrow>What it's made of</Eyebrow>
+            <div className="mt-2 space-y-1.5">
+              {score.parts.map(p=>(
+                <div key={p.label} className="flex items-center justify-between gap-3" style={{fontSize:12}}>
+                  <span style={{color:C.sub}}>{p.label}</span>
+                  <div className="flex items-center gap-2 flex-shrink-0" style={{minWidth:120}}>
+                    <div style={{flex:1,height:4,borderRadius:99,background:"rgba(255,255,255,0.08)",overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${p.value}%`,background:p.value>=75?C.go:p.value>=50?C.amber:C.neg,borderRadius:99}}/>
+                    </div>
+                    <span className="font-mono" style={{color:C.text,width:28,textAlign:"right"}}>{Math.round(p.value)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel className="p-5">
+        <Eyebrow>Balance sheet</Eyebrow>
+        <div className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
+          <HealthStat label="Assets" value={assetsTotal?cr(assetsTotal):"—"}/>
+          <HealthStat label="Liabilities" value={liabilitiesTotal?cr(liabilitiesTotal):"₹0"} tone={liabilitiesTotal>0?C.neg:C.text}/>
+          <HealthStat label="Net worth" value={nw?cr(nw):"—"}/>
+          <HealthStat label="Absolute gain" value={gainPct!=null?pct(gainPct):"—"} tone={gainPct>=0?C.pos:C.neg}/>
+          {liabilitiesTotal>0 && <HealthStat label="Debt ratio" value={`${debtRatio.toFixed(1)}%`} tone={debtRatio>40?C.neg:debtRatio>20?C.amber:C.go}/>}
+        </div>
+        <div className="mt-3" style={{color:C.muted,fontSize:11,lineHeight:1.5}}>
+          Gain is absolute return since your brokers report cost basis — not annualized. None expose per-holding
+          purchase dates, so a true money-weighted XIRR can't be computed honestly yet.
+        </div>
+      </Panel>
+
+      <BenchmarkPanel gainPct={gainPct}/>
+
+      <Panel className="p-5">
+        <Eyebrow>Diversification check</Eyebrow>
+        <div className="mt-3 space-y-2">
+          {concentration.holdingFlags.length===0 && concentration.classFlags.length===0 && (
+            <OkRow>No single holding above {HOLDING_FLAG_PCT}% or asset class above {CLASS_FLAG_PCT}% of net worth.</OkRow>
+          )}
+          {concentration.classFlags.map(c=><FlagRow key={"c:"+c.name} {...c}/>)}
+          {concentration.holdingFlags.map(h=><FlagRow key={"h:"+h.name} {...h}/>)}
+        </div>
+        {(concentration.holdingFlags.length>0 || concentration.classFlags.length>0) && (
+          <div className="mt-3" style={{color:C.muted,fontSize:11}}>
+            Flagged: asset classes above {CLASS_FLAG_PCT}% or single holdings above {HOLDING_FLAG_PCT}% of net worth.
+          </div>
+        )}
+      </Panel>
+
+      <TargetAllocationPanel allHoldings={allHoldings} netWorth={assetsTotal} targetAllocation={targetAllocation} user={user} onRefresh={onRefresh}/>
+
+      <Panel className="p-5">
+        <Eyebrow>Emergency fund</Eyebrow>
+        {annualExpensesToday ? (
+          <>
+            <div className="mt-3 flex flex-wrap gap-x-8 gap-y-4">
+              <HealthStat label="Liquid holdings" value={cr(liquid.value)}/>
+              <HealthStat label="Monthly expenses" value={cr(liquid.monthlyExpenses)}/>
+              <HealthStat label="Coverage" value={liquid.months!=null?`${liquid.months.toFixed(1)} mo`:"—"} tone={emColor}/>
+            </div>
+            <div className="mt-3" style={{height:5,borderRadius:99,background:"rgba(255,255,255,0.07)",overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${Math.min(100,((liquid.months||0)/6)*100)}%`,background:emColor,borderRadius:99,transition:"width 0.8s ease"}}/>
+            </div>
+            <div className="mt-2" style={{color:C.muted,fontSize:11}}>
+              Target 3–6 months. Counted from holdings whose name matches liquid/arbitrage/overnight funds — a heuristic, not a real cash-flag from your broker.
+            </div>
+          </>
+        ) : (
+          <div className="mt-2" style={{color:C.muted,fontSize:12.5}}>
+            Set "Annual expenses today" on the Trajectory tab to see coverage here — it reuses the same number.
+          </div>
+        )}
+      </Panel>
+
+      <Panel className="p-5">
+        <Eyebrow>Fund cost check</Eyebrow>
+        <div className="mt-3 space-y-2">
+          {regularFunds.length===0 && (
+            <OkRow>Every mutual fund holding looks like a Direct plan — no expense-ratio drag detected.</OkRow>
+          )}
+          {regularFunds.map(f=>(
+            <div key={f.name} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2" style={{background:C.panel2}}>
+              <span className="truncate" style={{color:C.text,fontSize:12.5,fontWeight:600}}>{f.name}</span>
+              <span className="font-mono flex-shrink-0" style={{color:C.amber,fontSize:12,fontWeight:600}}>~{cr(f.drag)}/yr</span>
+            </div>
+          ))}
+        </div>
+        {regularFunds.length>0 && (
+          <div className="mt-3" style={{color:C.muted,fontSize:11}}>
+            Flagged by name (no "Direct" in the fund name). Estimated drag assumes a {REGULAR_DRAG_PCT}% higher expense ratio than the Direct plan, compounding yearly.
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
 /* ─── Trajectory ─── */
 function Trajectory({a,setA,proj}){
   const fields = [
@@ -737,6 +1231,148 @@ function Trajectory({a,setA,proj}){
         <Icon name="alert" size={15} color={C.go} style={{flexShrink:0,marginTop:1}}/>
         <span>A model, not a promise. Assumes steady compounding; ignores tax, sequence-of-returns risk, and crashes.</span>
       </Panel>
+    </div>
+  );
+}
+
+/* ─── Goals — discrete funding targets (house, education...), separate from
+   the retirement-only FIRE math in Trajectory ─── */
+function goalProjection(g){
+  const monthlyRate = (g.expectedReturn||0)/100/12;
+  const target = new Date(g.targetDate);
+  const months = Math.max(0, Math.round((target-new Date())/(1000*60*60*24*30.44)));
+  let fv = g.currentAmount||0;
+  for(let i=0;i<months;i++) fv = fv*(1+monthlyRate) + (g.monthlyContribution||0);
+  const progressPct = g.targetAmount ? Math.min(100,((g.currentAmount||0)/g.targetAmount)*100) : 0;
+  return {
+    months, projectedValue:fv, onTrack: fv>=g.targetAmount, progressPct,
+    shortfall: Math.max(0, g.targetAmount-fv),
+    yearsAway: (target-new Date())/(1000*60*60*24*365.25),
+  };
+}
+
+function GoalCard({goal, onEdit, onDelete, busy}){
+  const p = goalProjection(goal);
+  return (
+    <Panel className="p-5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate" style={{color:C.text,fontSize:14.5,fontWeight:700}}>{goal.name}</div>
+          <div style={{color:C.muted,fontSize:11.5,marginTop:2}}>
+            Target {cr(goal.targetAmount)} by {new Date(goal.targetDate).toLocaleDateString("en-IN",{month:"short",year:"numeric"})}
+            {p.yearsAway>0 && ` · ${p.yearsAway.toFixed(1)}y away`}
+          </div>
+        </div>
+        <div className="flex gap-1.5 flex-shrink-0">
+          <button onClick={()=>onEdit(goal)} disabled={busy} className="rounded-lg p-1.5" style={{background:C.panel2,border:C.border}}>
+            <Icon name="refresh" size={12} color={C.sub}/>
+          </button>
+          <button onClick={()=>onDelete(goal.id)} disabled={busy} className="rounded-lg p-1.5" style={{background:C.panel2,border:C.border}}>
+            <Icon name="alert" size={12} color={C.neg}/>
+          </button>
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="flex items-center justify-between mb-1" style={{fontSize:12}}>
+          <span style={{color:C.muted}}>Saved so far</span>
+          <span className="font-mono" style={{color:C.text,fontWeight:600}}>{cr(goal.currentAmount||0)} · {p.progressPct.toFixed(0)}%</span>
+        </div>
+        <div style={{height:6,borderRadius:99,background:"rgba(255,255,255,0.07)",overflow:"hidden"}}>
+          <div style={{height:"100%",width:`${p.progressPct}%`,background:C.rajanish,borderRadius:99,transition:"width 0.8s ease"}}/>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2.5" style={{background:p.onTrack?C.goSoft:"rgba(255,97,120,0.12)"}}>
+        <Icon name={p.onTrack?"up":"alert"} size={14} color={p.onTrack?C.go:C.neg}/>
+        <span style={{color:C.text,fontSize:12,flex:1}}>
+          {p.onTrack
+            ? `On track — projected ${cr(p.projectedValue)} by target date.`
+            : `Short by ~${cr(p.shortfall)} at this contribution rate.`}
+        </span>
+      </div>
+      <div className="mt-2" style={{color:C.muted,fontSize:10.5}}>
+        Assumes {cr(goal.monthlyContribution||0)}/mo at {goal.expectedReturn}% annual return, compounded monthly.
+      </div>
+    </Panel>
+  );
+}
+
+const EMPTY_GOAL_FORM = {name:"",targetAmount:"",targetDate:"",currentAmount:"",monthlyContribution:"",expectedReturn:"10",note:""};
+
+function Goals({user, goals, onRefresh}){
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(EMPTY_GOAL_FORM);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  function startAdd(){ setForm(EMPTY_GOAL_FORM); setError(null); setEditing("new"); }
+  function startEdit(g){
+    setForm({name:g.name, targetAmount:g.targetAmount, targetDate:g.targetDate, currentAmount:g.currentAmount||"",
+      monthlyContribution:g.monthlyContribution||"", expectedReturn:g.expectedReturn??10, note:g.note||""});
+    setError(null); setEditing(g.id);
+  }
+  async function submit(){
+    if(!form.name || !form.targetAmount || !form.targetDate){ setError("Name, target amount, and target date are required."); return; }
+    setBusy(true); setError(null);
+    try{
+      const r = editing==="new" ? await api.addGoal(user, form) : await api.editGoal(user, editing, form);
+      if(!r.ok) throw new Error(r.error||"save failed");
+      setEditing(null);
+      await onRefresh();
+    }catch(e){ setError(String(e.message||e)); }
+    finally{ setBusy(false); }
+  }
+  async function remove(id){
+    setBusy(true);
+    try{ await api.deleteGoal(user, id); await onRefresh(); }
+    finally{ setBusy(false); }
+  }
+
+  const inputStyle = {background:C.panelSolid,border:C.border,color:C.text,fontSize:12.5,width:"100%"};
+
+  return (
+    <div className="space-y-4">
+      <Panel className="p-4 flex items-center justify-between gap-3 flex-wrap">
+        <div style={{color:C.sub,fontSize:12.5}}>
+          Separate from Trajectory's retirement-only FIRE math — track a house, education, or any other funding target here.
+        </div>
+        <button onClick={startAdd} className="rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5 flex-shrink-0"
+          style={{background:C.go,color:C.btnText,fontSize:12,fontWeight:700,boxShadow:"0 0 16px rgba(0,229,168,0.35)"}}>
+          <Icon name="link" size={12}/>Add goal
+        </button>
+      </Panel>
+
+      {editing && (
+        <Panel className="p-5 space-y-2">
+          <input placeholder="Goal name (e.g. House down payment)" value={form.name}
+            onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          <div className="grid grid-cols-2 gap-2">
+            <input placeholder="Target amount (₹)" type="number" value={form.targetAmount}
+              onChange={e=>setForm({...form,targetAmount:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder="Target date" type="date" value={form.targetDate}
+              onChange={e=>setForm({...form,targetDate:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder="Saved so far (₹)" type="number" value={form.currentAmount}
+              onChange={e=>setForm({...form,currentAmount:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder="Monthly contribution (₹)" type="number" value={form.monthlyContribution}
+              onChange={e=>setForm({...form,monthlyContribution:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          </div>
+          <input placeholder="Expected annual return % (default 10)" type="number" value={form.expectedReturn}
+            onChange={e=>setForm({...form,expectedReturn:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          <input placeholder="Note (optional)" value={form.note}
+            onChange={e=>setForm({...form,note:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          {error && <div style={{color:C.neg,fontSize:11.5}}>{error}</div>}
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={()=>setEditing(null)} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.panelSolid,color:C.sub,fontSize:12,fontWeight:600,border:C.border}}>Cancel</button>
+            <button onClick={submit} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.go,color:C.btnText,fontSize:12,fontWeight:700}}>{busy?"Saving…":"Save"}</button>
+          </div>
+        </Panel>
+      )}
+
+      {goals.length===0 && !editing && (
+        <Panel className="p-10 text-center"><div style={{color:C.sub,fontSize:13.5}}>No goals yet — add one to see if you're on track.</div></Panel>
+      )}
+      {goals.map(g=><GoalCard key={g.id} goal={g} onEdit={startEdit} onDelete={remove} busy={busy}/>)}
     </div>
   );
 }
@@ -803,7 +1439,8 @@ function FamilyDashboard({usersState}){
         current: s.current+(h.current||0),
         pnl: s.pnl+(h.absoluteReturn||h.pnl||0),
       }),{invested:0,current:0,pnl:0});
-      return { uid, name, holdings, total };
+      const liabilitiesTotal = usersState[uid]?.liabilitiesTotal||0;
+      return { uid, name, holdings, total, liabilitiesTotal, netWorth: total.current-liabilitiesTotal };
     });
   },[usersState]);
 
@@ -812,7 +1449,9 @@ function FamilyDashboard({usersState}){
     invested: s.invested+u.total.invested,
     current: s.current+u.total.current,
     pnl: s.pnl+u.total.pnl,
-  }),{invested:0,current:0,pnl:0}),[perUser]);
+    liabilitiesTotal: s.liabilitiesTotal+u.liabilitiesTotal,
+    netWorth: s.netWorth+u.netWorth,
+  }),{invested:0,current:0,pnl:0,liabilitiesTotal:0,netWorth:0}),[perUser]);
 
   const NAV_FAM = [["overview","Overview","layout"],["holdings","Holdings","wallet"],["allocation","Allocation","pie"]];
 
@@ -826,10 +1465,11 @@ function FamilyDashboard({usersState}){
             <Icon name="heart" size={14} color={C.go}/>
             <Eyebrow style={{margin:0}}>Family total</Eyebrow>
           </div>
-          <div className="font-mono" style={{color:C.text,fontSize:28,fontWeight:700,lineHeight:1}}>{familyTotal.current?cr(familyTotal.current):"—"}</div>
+          <div className="font-mono" style={{color:C.text,fontSize:28,fontWeight:700,lineHeight:1}}>{familyTotal.netWorth?cr(familyTotal.netWorth):"—"}</div>
           <div className="mt-1 font-mono" style={{color:familyTotal.pnl>=0?C.pos:C.neg,fontSize:12}}>
             {familyTotal.pnl?cr(familyTotal.pnl):"—"} {familyTotal.invested?`(${pct((familyTotal.pnl/familyTotal.invested)*100)})`:""}
           </div>
+          {familyTotal.liabilitiesTotal>0 && <div style={{color:C.muted,fontSize:11,marginTop:4}}>net of {cr(familyTotal.liabilitiesTotal)} owed</div>}
         </Panel>
         {/* Per person */}
         {perUser.map(u=>(
@@ -838,11 +1478,11 @@ function FamilyDashboard({usersState}){
               <span style={{width:8,height:8,borderRadius:99,background:C[u.uid]||C.go,flexShrink:0,boxShadow:`0 0 6px ${C[u.uid]||C.go}`}}/>
               <Eyebrow style={{margin:0}}>{u.name}</Eyebrow>
             </div>
-            <div className="font-mono" style={{color:C.text,fontSize:22,fontWeight:700,lineHeight:1}}>{u.total.current?cr(u.total.current):"—"}</div>
+            <div className="font-mono" style={{color:C.text,fontSize:22,fontWeight:700,lineHeight:1}}>{u.netWorth?cr(u.netWorth):"—"}</div>
             <div className="mt-1 font-mono" style={{color:u.total.pnl>=0?C.pos:C.neg,fontSize:12}}>
               {u.total.pnl?cr(u.total.pnl):"—"} {u.total.invested?`(${pct((u.total.pnl/u.total.invested)*100)})`:""}
             </div>
-            <div style={{color:C.muted,fontSize:11,marginTop:4}}>{u.holdings.length} holdings</div>
+            <div style={{color:C.muted,fontSize:11,marginTop:4}}>{u.holdings.length} holdings{u.liabilitiesTotal>0?` · -${cr(u.liabilitiesTotal)} owed`:""}</div>
           </Panel>
         ))}
       </div>
@@ -858,7 +1498,7 @@ function FamilyDashboard({usersState}){
         ))}
       </nav>
 
-      {tab==="overview" && <Overview total={familyTotal} allHoldings={allHoldings} a={{currentAge:0}} proj={{rows:[],fiYear:null,todayFI:0}} go={null}/>}
+      {tab==="overview" && <Overview total={familyTotal} netWorth={familyTotal.netWorth} liabilitiesTotal={familyTotal.liabilitiesTotal} allHoldings={allHoldings} a={{currentAge:0}} proj={{rows:[],fiYear:null,todayFI:0}} go={null}/>}
       {tab==="holdings" && <Holdings allHoldings={allHoldings} refreshedAt={null}/>}
       {tab==="allocation" && <Allocation allHoldings={allHoldings}/>}
     </div>
@@ -867,9 +1507,16 @@ function FamilyDashboard({usersState}){
 
 /* ─── Per-user view ─── */
 const USER_NAV = [["overview","Overview","layout"],["holdings","Holdings","wallet"],
-  ["allocation","Allocation","pie"],["trajectory","Trajectory","rocket"],["data","Data","db"]];
+  ["allocation","Allocation","pie"],["health","Health","trend"],["goals","Goals","heart"],
+  ["trajectory","Trajectory","rocket"],["data","Data","db"]];
 
-function UserDashboard({uid, uLabel, brokers, onConnect, onLoad, onCall, onRefresh}){
+function UserDashboard({uid, uLabel, userData, onConnect, onLoad, onCall, onRefresh}){
+  const brokers = userData?.brokers;
+  const liabilities = userData?.liabilities || [];
+  const liabilitiesTotal = userData?.liabilitiesTotal || 0;
+  const targetAllocation = userData?.targetAllocation;
+  const goals = userData?.goals || [];
+  const history = userData?.history || [];
   const [tab, setTab] = useState("overview");
   const [a, setA] = useState({currentAge:30,currentCorpus:0,monthlyInvestment:50000,annualStepUp:5,
     expectedReturn:11,inflation:6,annualExpensesToday:600000,swr:3.5});
@@ -884,6 +1531,7 @@ function UserDashboard({uid, uLabel, brokers, onConnect, onLoad, onCall, onRefre
     }
     return {invested,current,pnl,dividends,totalReturn:pnl+dividends};
   },[allHoldings]);
+  const netWorth = total.current - liabilitiesTotal;
 
   const refreshedAt = useMemo(()=>{
     const dates = Object.values(brokers||{}).map(b=>b?.cachedAt).filter(Boolean);
@@ -905,6 +1553,7 @@ function UserDashboard({uid, uLabel, brokers, onConnect, onLoad, onCall, onRefre
           return <BrokerCard key={k} user={uid} brokerKey={k} label={label} st={brokers?.[k]}
             onConnect={onConnect} onLoad={onLoad}/>;
         })}
+        <LiabilitiesCard user={uid} entries={liabilities} onRefresh={onRefresh}/>
       </div>
 
       {/* Sub-nav */}
@@ -918,9 +1567,12 @@ function UserDashboard({uid, uLabel, brokers, onConnect, onLoad, onCall, onRefre
         ))}
       </nav>
 
-      {tab==="overview"    && <Overview total={total} allHoldings={allHoldings} a={a} proj={proj} go={setTab}/>}
+      {tab==="overview"    && <Overview total={total} netWorth={netWorth} liabilitiesTotal={liabilitiesTotal} allHoldings={allHoldings} a={a} proj={proj} go={setTab} history={history}/>}
       {tab==="holdings"    && <Holdings allHoldings={allHoldings} refreshedAt={refreshedAt}/>}
       {tab==="allocation"  && <Allocation allHoldings={allHoldings}/>}
+      {tab==="health"      && <Health allHoldings={allHoldings} total={total} netWorth={netWorth} liabilitiesTotal={liabilitiesTotal}
+        annualExpensesToday={a.annualExpensesToday} proj={proj} targetAllocation={targetAllocation} user={uid} onRefresh={onRefresh}/>}
+      {tab==="goals"       && <Goals user={uid} goals={goals} onRefresh={onRefresh}/>}
       {tab==="trajectory"  && <Trajectory a={a} setA={setA} proj={proj}/>}
       {tab==="data"        && <DataRoom user={uid} brokers={brokers||{}} onCall={onCall}/>}
     </div>
@@ -958,6 +1610,13 @@ function App(){
           next[uid].brokers[broker].cachedAt=info.cachedAt;
         }
       }
+      next[uid].liabilities = uData.liabilities?.entries || [];
+      next[uid].liabilitiesTotal = uData.liabilities?.total || 0;
+      next[uid].targetAllocation = uData.targetAllocation || null;
+      next[uid].goals = uData.goals || [];
+      next[uid].netWorth = uData.netWorth ?? null;
+      next[uid].assetsTotal = uData.assetsTotal ?? null;
+      next[uid].history = uData.history || [];
     }
     setUsers(next);
   }
@@ -999,13 +1658,14 @@ function App(){
   }
 
   const familyTotal = useMemo(()=>{
-    let current=0;
+    let current=0, liabilities=0;
     for(const u of Object.values(users)){
       for(const b of Object.values(u.brokers||{})){
         for(const h of (b.holdings||[])) current+=h.current||0;
       }
+      liabilities += u.liabilitiesTotal||0;
     }
-    return current;
+    return current - liabilities;
   },[users]);
 
   const USER_TABS = [
@@ -1080,14 +1740,12 @@ function App(){
 
         {/* Main content */}
         {userTab==="rajanish" && (
-          <UserDashboard uid="rajanish" uLabel="Rajanish"
-            brokers={users.rajanish?.brokers}
+          <UserDashboard uid="rajanish" uLabel="Rajanish" userData={users.rajanish}
             onConnect={connect} onLoad={load} onRefresh={refreshStatus}
             onCall={(u,b,n)=>api.callTool(u,b,n)}/>
         )}
         {userTab==="aswini" && (
-          <UserDashboard uid="aswini" uLabel="Aswini"
-            brokers={users.aswini?.brokers}
+          <UserDashboard uid="aswini" uLabel="Aswini" userData={users.aswini}
             onConnect={connect} onLoad={load} onRefresh={refreshStatus}
             onCall={(u,b,n)=>api.callTool(u,b,n)}/>
         )}
