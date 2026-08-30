@@ -46,7 +46,7 @@ const USERS = [["rajanish", "Rajanish"], ["aswini", "Aswini"]];
 const BROKERS = [["kite", "Zerodha · Kite"], ["indmoney", "INDmoney"]];
 const USER_BROKERS = {
   rajanish: ["kite", "indmoney", "manual"],
-  aswini: ["kite", "indmoney", "truthifi"]
+  aswini: ["kite", "indmoney", "truthifi", "manual"]
 };
 const ASSET_GROUPS = [{
   key: "eq",
@@ -83,6 +83,11 @@ const ASSET_GROUPS = [{
   label: "ESOP (EUR)",
   color: "#FF9F5A",
   match: h => h.assetType === "ESOP" && h.exchange === "EUR"
+}, {
+  key: "fd",
+  label: "FCNR / FDs",
+  color: "#31D6C4",
+  match: h => h.assetType === "FD"
 }];
 function classifyHolding(h) {
   return ASSET_GROUPS.find(g => g.match(h)) || {
@@ -663,15 +668,21 @@ function TruthifiCard({
 }
 const EMPTY_MANUAL_FORM = {
   name: "",
-  valueEur: "",
+  type: "ESOP",
+  currency: "EUR",
+  value: "",
   units: "",
-  unitPriceEur: "",
-  investedEur: "",
+  unitPrice: "",
+  invested: "",
+  bank: "",
+  interestRate: "",
+  openDate: "",
+  maturityDate: "",
   asOf: "",
   note: ""
 };
 
-/* ─── Manual assets card (e.g. a foreign ESOP with no MCP server) ─── */
+/* ─── Manual assets card (e.g. a foreign ESOP or FCNR deposit — no MCP server) ─── */
 function ManualAssetsCard({
   user,
   st,
@@ -683,6 +694,11 @@ function ManualAssetsCard({
   const [error, setError] = useState(null);
   const holdings = st?.holdings || [];
   const total = holdings.reduce((s, h) => s + (h.current || 0), 0);
+  const rates = st?.rates || {};
+  const currencySym = {
+    EUR: "€",
+    USD: "$"
+  };
   function startAdd() {
     setForm(EMPTY_MANUAL_FORM);
     setError(null);
@@ -691,10 +707,16 @@ function ManualAssetsCard({
   function startEdit(h) {
     setForm({
       name: h.symbol || "",
-      valueEur: h.eurValue ?? "",
+      type: h.assetType || "ESOP",
+      currency: h.currency || "EUR",
+      value: h.nativeValue ?? "",
       units: h.quantity ?? "",
-      unitPriceEur: h.eurValue != null && h.quantity ? (h.unitPrice / (h.eurInr || 1)).toFixed(2) : "",
-      investedEur: h.investedEur ?? "",
+      unitPrice: h.unitPrice != null && h.fxRate ? (h.unitPrice / h.fxRate).toFixed(2) : "",
+      invested: h.nativeInvested ?? "",
+      bank: h.broker || "",
+      interestRate: h.interestRate ?? "",
+      openDate: h.openDate || "",
+      maturityDate: h.maturityDate || "",
       asOf: h.asOf || "",
       note: h.note || ""
     });
@@ -702,8 +724,8 @@ function ManualAssetsCard({
     setEditing(h.id);
   }
   async function submit() {
-    if (!form.name || !form.valueEur) {
-      setError("Name and value (EUR) are required.");
+    if (!form.name || !form.value) {
+      setError("Name and value are required.");
       return;
     }
     setBusy(true);
@@ -735,6 +757,7 @@ function ManualAssetsCard({
     fontSize: 12.5,
     width: "100%"
   };
+  const isFD = form.type === "FD";
   return /*#__PURE__*/React.createElement(Panel, {
     className: "p-4",
     style: {
@@ -754,7 +777,7 @@ function ManualAssetsCard({
       fontSize: 13.5,
       fontWeight: 600
     }
-  }, "Manual · ESOP (EUR)")), /*#__PURE__*/React.createElement("button", {
+  }, "Manual assets")), /*#__PURE__*/React.createElement("button", {
     onClick: startAdd,
     disabled: busy,
     className: "rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5 flex-shrink-0",
@@ -774,11 +797,15 @@ function ManualAssetsCard({
       color: C.sub,
       fontSize: 11.5
     }
-  }, holdings.length ? `${cr(total)} · ${holdings.length} entr${holdings.length !== 1 ? "ies" : "y"}` : "No entries yet — add your Amundi balance manually", st?.eurInr && /*#__PURE__*/React.createElement("span", {
+  }, holdings.length ? `${cr(total)} · ${holdings.length} entr${holdings.length !== 1 ? "ies" : "y"}` : "No entries yet — add an ESOP or FD balance manually", rates.EUR && /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.muted
     }
-  }, " · 1 EUR = ₹", st.eurInr.toFixed(2))), holdings.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, " · 1 EUR = ₹", rates.EUR.toFixed(2)), rates.USD && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.muted
+    }
+  }, " · 1 USD = ₹", rates.USD.toFixed(2))), holdings.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "mt-3 space-y-2"
   }, holdings.map(h => /*#__PURE__*/React.createElement("div", {
     key: h.id,
@@ -801,7 +828,7 @@ function ManualAssetsCard({
       color: C.muted,
       fontSize: 10.5
     }
-  }, "€", h.eurValue?.toFixed(2), " · ", cr(h.current), h.note ? ` · ${h.note}` : "")), /*#__PURE__*/React.createElement("div", {
+  }, currencySym[h.currency] || "", h.nativeValue?.toFixed(2), " · ", cr(h.current), h.note ? ` · ${h.note}` : "")), /*#__PURE__*/React.createElement("div", {
     className: "flex gap-1.5 flex-shrink-0"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => startEdit(h),
@@ -833,8 +860,34 @@ function ManualAssetsCard({
       background: C.panel2,
       border: C.border
     }
-  }, /*#__PURE__*/React.createElement("input", {
-    placeholder: "Fund name (e.g. ESOP Leverage P 2023)",
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-2"
+  }, /*#__PURE__*/React.createElement("select", {
+    value: form.type,
+    onChange: e => setForm({
+      ...form,
+      type: e.target.value
+    }),
+    className: "rounded-lg px-2.5 py-1.5",
+    style: inputStyle
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "ESOP"
+  }, "ESOP"), /*#__PURE__*/React.createElement("option", {
+    value: "FD"
+  }, "Fixed Deposit (e.g. FCNR)")), /*#__PURE__*/React.createElement("select", {
+    value: form.currency,
+    onChange: e => setForm({
+      ...form,
+      currency: e.target.value
+    }),
+    className: "rounded-lg px-2.5 py-1.5",
+    style: inputStyle
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "EUR"
+  }, "EUR"), /*#__PURE__*/React.createElement("option", {
+    value: "USD"
+  }, "USD"))), /*#__PURE__*/React.createElement("input", {
+    placeholder: isFD ? "Name (e.g. FCNR — ICICI Bank #1)" : "Fund name (e.g. ESOP Leverage P 2023)",
     value: form.name,
     onChange: e => setForm({
       ...form,
@@ -845,16 +898,26 @@ function ManualAssetsCard({
   }), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-2"
   }, /*#__PURE__*/React.createElement("input", {
-    placeholder: "Value (EUR)",
+    placeholder: `Value (${form.currency})`,
     type: "number",
-    value: form.valueEur,
+    value: form.value,
     onChange: e => setForm({
       ...form,
-      valueEur: e.target.value
+      value: e.target.value
     }),
     className: "rounded-lg px-2.5 py-1.5",
     style: inputStyle
   }), /*#__PURE__*/React.createElement("input", {
+    placeholder: `Invested (${form.currency}, optional)`,
+    type: "number",
+    value: form.invested,
+    onChange: e => setForm({
+      ...form,
+      invested: e.target.value
+    }),
+    className: "rounded-lg px-2.5 py-1.5",
+    style: inputStyle
+  }), !isFD && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
     placeholder: "Units",
     type: "number",
     value: form.units,
@@ -865,26 +928,55 @@ function ManualAssetsCard({
     className: "rounded-lg px-2.5 py-1.5",
     style: inputStyle
   }), /*#__PURE__*/React.createElement("input", {
-    placeholder: "Unit price (EUR)",
+    placeholder: `Unit price (${form.currency})`,
     type: "number",
-    value: form.unitPriceEur,
+    value: form.unitPrice,
     onChange: e => setForm({
       ...form,
-      unitPriceEur: e.target.value
+      unitPrice: e.target.value
+    }),
+    className: "rounded-lg px-2.5 py-1.5",
+    style: inputStyle
+  }))), isFD && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+    placeholder: "Bank (e.g. Karur Vysya Bank)",
+    value: form.bank,
+    onChange: e => setForm({
+      ...form,
+      bank: e.target.value
+    }),
+    className: "rounded-lg px-2.5 py-1.5",
+    style: inputStyle
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-3 gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    placeholder: "Interest % p.a.",
+    type: "number",
+    value: form.interestRate,
+    onChange: e => setForm({
+      ...form,
+      interestRate: e.target.value
     }),
     className: "rounded-lg px-2.5 py-1.5",
     style: inputStyle
   }), /*#__PURE__*/React.createElement("input", {
-    placeholder: "Invested (EUR, optional)",
-    type: "number",
-    value: form.investedEur,
+    placeholder: "Opened (YYYY-MM-DD)",
+    value: form.openDate,
     onChange: e => setForm({
       ...form,
-      investedEur: e.target.value
+      openDate: e.target.value
     }),
     className: "rounded-lg px-2.5 py-1.5",
     style: inputStyle
-  })), /*#__PURE__*/React.createElement("input", {
+  }), /*#__PURE__*/React.createElement("input", {
+    placeholder: "Matures (YYYY-MM-DD)",
+    value: form.maturityDate,
+    onChange: e => setForm({
+      ...form,
+      maturityDate: e.target.value
+    }),
+    className: "rounded-lg px-2.5 py-1.5",
+    style: inputStyle
+  }))), /*#__PURE__*/React.createElement("input", {
     placeholder: "As-of date (optional, e.g. 2026-06-14)",
     value: form.asOf,
     onChange: e => setForm({
@@ -894,7 +986,7 @@ function ManualAssetsCard({
     className: "rounded-lg px-2.5 py-1.5",
     style: inputStyle
   }), /*#__PURE__*/React.createElement("input", {
-    placeholder: "Note (optional, e.g. available Dec 2028)",
+    placeholder: "Note (optional)",
     value: form.note,
     onChange: e => setForm({
       ...form,
@@ -3396,7 +3488,7 @@ function App() {
           tools: info.tools,
           loginUrl: info.loginUrl,
           usdInr: info.usdInr || null,
-          eurInr: info.eurInr || null
+          rates: info.rates || null
         };
         if (info.cachedHoldings?.length) {
           next[uid].brokers[broker].holdings = info.cachedHoldings;

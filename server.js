@@ -55,9 +55,17 @@ const USER_BROKERS = {
   aswini:   ["kite", "indmoney", "truthifi"],
 };
 
-// Users who can add manually-entered assets (e.g. a foreign ESOP account with
-// no MCP server). Stored in their native currency, converted to INR live.
-const USER_MANUAL = { rajanish: true };
+// Which asset kind a manual entry is — drives which fields the form shows and
+// how the note line is built. Add here if a new kind of manual asset shows up.
+const MANUAL_KINDS = ["ESOP", "FD"];
+
+// Users who can add manually-entered assets (e.g. a foreign ESOP account or an
+// FCNR deposit — anything with no MCP server). Stored in their native
+// currency, converted to INR live.
+const USER_MANUAL = { rajanish: true, aswini: true };
+
+// Live FX rate for a manual entry's currency.
+const MANUAL_FX = { EUR: () => fetchEurInr(), USD: () => fetchUsdInr() };
 
 // Users who can track liabilities, a target allocation, and named goals.
 // All INR-native features, no currency conversion needed.
@@ -159,22 +167,33 @@ function upsertHistorySnapshot(user, current, invested) {
   saveToDrive(cache).catch(() => {});
 }
 
-// Normalise a manually-entered asset (stored in EUR) into the same holding
-// shape broker holdings use, converting to INR with the live rate supplied.
-function toManualHolding(e, eurInr) {
-  const rate = eurInr || 0;
-  const current = e.valueEur != null ? e.valueEur * rate : null;
-  const invested = e.investedEur != null ? e.investedEur * rate : null;
+// Build the note line for a manual entry — FDs show bank/rate/maturity even
+// if the user didn't type a custom note; ESOPs just show whatever note they typed.
+function manualNote(e) {
+  if (e.type === "FD") {
+    return [e.bank, e.interestRate != null ? `${e.interestRate}% p.a.` : null,
+      e.maturityDate ? `matures ${e.maturityDate}` : null, e.note]
+      .filter(Boolean).join(" · ") || null;
+  }
+  return e.note || null;
+}
+
+// Normalise a manually-entered asset (stored in its native currency) into the
+// same holding shape broker holdings use, converting to INR with the live rate.
+function toManualHolding(e, rates) {
+  const rate = rates[e.currency] || 0;
+  const current = e.value != null ? e.value * rate : null;
+  const invested = e.invested != null ? e.invested * rate : null;
   const pnl = invested != null && current != null ? current - invested : null;
   const pnlPct = invested ? (pnl / invested) * 100 : null;
   return {
     id: e.id,
     symbol: e.name,
-    exchange: "EUR",
-    assetType: "ESOP",
-    broker: "Amundi",
+    exchange: e.currency,
+    assetType: e.type,
+    broker: e.type === "FD" ? (e.bank || "") : "Amundi",
     investmentCode: e.id,
-    unitPrice: e.unitPriceEur != null ? e.unitPriceEur * rate : null,
+    unitPrice: e.unitPrice != null ? e.unitPrice * rate : null,
     quantity: e.units != null ? e.units : null,
     invested, current,
     pnl, pnlPct, absoluteReturn: pnl, absoluteReturnPct: pnlPct,
@@ -182,8 +201,10 @@ function toManualHolding(e, eurInr) {
     returnWithDividends: pnlPct, returnWithoutDividends: pnlPct,
     xirr: null, benchmarkXirr: null, cagr: null,
     source: "manual",
-    eurValue: e.valueEur, investedEur: e.investedEur ?? null, eurInr: rate,
-    asOf: e.asOf || null, note: e.note || null,
+    nativeValue: e.value, nativeInvested: e.invested ?? null, fxRate: rate,
+    currency: e.currency, interestRate: e.interestRate ?? null,
+    openDate: e.openDate || null, maturityDate: e.maturityDate || null,
+    asOf: e.asOf || null, note: manualNote(e),
   };
 }
 
@@ -257,12 +278,13 @@ app.get("/api/status", wrap(async (_req, res) => {
     }
     if (USER_MANUAL[user]) {
       const entries = loadManualEntries(user);
-      const eurInr = await fetchEurInr();
-      const manualHoldings = entries.map((e) => toManualHolding(e, eurInr));
+      const [eurInr, usdInr] = await Promise.all([fetchEurInr(), fetchUsdInr()]);
+      const rates = { EUR: eurInr, USD: usdInr };
+      const manualHoldings = entries.map((e) => toManualHolding(e, rates));
       assetsTotal += manualHoldings.reduce((sum, h) => sum + (h.current || 0), 0);
       investedTotal += manualHoldings.reduce((sum, h) => sum + (h.invested || 0), 0);
       out[user].brokers.manual = {
-        label: "Manual · ESOP (EUR)",
+        label: "Manual assets",
         manual: true,
         connected: true,
         authed: entries.length > 0,
@@ -271,7 +293,7 @@ app.get("/api/status", wrap(async (_req, res) => {
         entries,
         cachedHoldings: manualHoldings,
         cachedAt: loadCache()[user]?.manual?.savedAt || null,
-        eurInr,
+        rates,
       };
     }
     let liabilitiesTotal = 0;
@@ -294,35 +316,47 @@ app.get("/api/status", wrap(async (_req, res) => {
   res.json({ users: out });
 }));
 
+async function manualRates() {
+  const [eurInr, usdInr] = await Promise.all([fetchEurInr(), fetchUsdInr()]);
+  return { EUR: eurInr, USD: usdInr };
+}
+
 app.get("/api/:user/manual", wrap(async (req, res) => {
   const { user } = req.params;
   if (!USERS[user] || !USER_MANUAL[user]) return res.status(404).json({ error: "Unknown user" });
   const entries = loadManualEntries(user);
-  const eurInr = await fetchEurInr();
-  res.json({ entries, holdings: entries.map((e) => toManualHolding(e, eurInr)), eurInr });
+  const rates = await manualRates();
+  res.json({ entries, holdings: entries.map((e) => toManualHolding(e, rates)), rates });
 }));
 
 app.post("/api/:user/manual", wrap(async (req, res) => {
   const { user } = req.params;
   if (!USERS[user] || !USER_MANUAL[user]) return res.status(404).json({ error: "Unknown user" });
-  const { name, valueEur, units, unitPriceEur, investedEur, asOf, note } = req.body || {};
-  if (!name || !(Number(valueEur) > 0)) return res.status(400).json({ error: "name and valueEur are required" });
+  const { name, type, currency, value, units, unitPrice, invested, bank, interestRate, openDate, maturityDate, asOf, note } = req.body || {};
+  if (!name || !(Number(value) > 0)) return res.status(400).json({ error: "name and value are required" });
+  if (currency && currency !== "EUR" && currency !== "USD") return res.status(400).json({ error: "currency must be EUR or USD" });
   const entries = loadManualEntries(user);
   const entry = {
     id: crypto.randomUUID(),
+    type: MANUAL_KINDS.includes(type) ? type : "ESOP",
     name: String(name),
-    valueEur: Number(valueEur),
+    currency: currency || "EUR",
+    value: Number(value),
     units: units != null && units !== "" ? Number(units) : null,
-    unitPriceEur: unitPriceEur != null && unitPriceEur !== "" ? Number(unitPriceEur) : null,
-    investedEur: investedEur != null && investedEur !== "" ? Number(investedEur) : null,
+    unitPrice: unitPrice != null && unitPrice !== "" ? Number(unitPrice) : null,
+    invested: invested != null && invested !== "" ? Number(invested) : null,
+    bank: bank || null,
+    interestRate: interestRate != null && interestRate !== "" ? Number(interestRate) : null,
+    openDate: openDate || null,
+    maturityDate: maturityDate || null,
     asOf: asOf || null,
     note: note || null,
     addedAt: new Date().toISOString(),
   };
   entries.push(entry);
   saveManualEntries(user, entries);
-  const eurInr = await fetchEurInr();
-  res.json({ ok: true, holding: toManualHolding(entry, eurInr) });
+  const rates = await manualRates();
+  res.json({ ok: true, holding: toManualHolding(entry, rates) });
 }));
 
 app.put("/api/:user/manual/:id", wrap(async (req, res) => {
@@ -331,21 +365,27 @@ app.put("/api/:user/manual/:id", wrap(async (req, res) => {
   const entries = loadManualEntries(user);
   const idx = entries.findIndex((e) => e.id === id);
   if (idx === -1) return res.status(404).json({ error: "Entry not found" });
-  const { name, valueEur, units, unitPriceEur, investedEur, asOf, note } = req.body || {};
+  const { name, type, currency, value, units, unitPrice, invested, bank, interestRate, openDate, maturityDate, asOf, note } = req.body || {};
   const e = entries[idx];
   entries[idx] = {
     ...e,
     ...(name != null && { name: String(name) }),
-    ...(valueEur != null && valueEur !== "" && { valueEur: Number(valueEur) }),
+    ...(MANUAL_KINDS.includes(type) && { type }),
+    ...((currency === "EUR" || currency === "USD") && { currency }),
+    ...(value != null && value !== "" && { value: Number(value) }),
     ...(units != null && { units: units === "" ? null : Number(units) }),
-    ...(unitPriceEur != null && { unitPriceEur: unitPriceEur === "" ? null : Number(unitPriceEur) }),
-    ...(investedEur != null && { investedEur: investedEur === "" ? null : Number(investedEur) }),
+    ...(unitPrice != null && { unitPrice: unitPrice === "" ? null : Number(unitPrice) }),
+    ...(invested != null && { invested: invested === "" ? null : Number(invested) }),
+    ...(bank != null && { bank: bank || null }),
+    ...(interestRate != null && { interestRate: interestRate === "" ? null : Number(interestRate) }),
+    ...(openDate != null && { openDate: openDate || null }),
+    ...(maturityDate != null && { maturityDate: maturityDate || null }),
     ...(asOf != null && { asOf: asOf || null }),
     ...(note != null && { note: note || null }),
   };
   saveManualEntries(user, entries);
-  const eurInr = await fetchEurInr();
-  res.json({ ok: true, holding: toManualHolding(entries[idx], eurInr) });
+  const rates = await manualRates();
+  res.json({ ok: true, holding: toManualHolding(entries[idx], rates) });
 }));
 
 app.delete("/api/:user/manual/:id", wrap(async (req, res) => {

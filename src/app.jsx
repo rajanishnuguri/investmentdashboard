@@ -29,7 +29,7 @@ const PIE = ["#4FA8FF","#00E5A8","#B497FF","#FFC24E","#6E86FF","#FF6E8E","#8DA0C
 
 const USERS = [["rajanish","Rajanish"],["aswini","Aswini"]];
 const BROKERS = [["kite","Zerodha · Kite"],["indmoney","INDmoney"]];
-const USER_BROKERS = { rajanish: ["kite","indmoney","manual"], aswini: ["kite","indmoney","truthifi"] };
+const USER_BROKERS = { rajanish: ["kite","indmoney","manual"], aswini: ["kite","indmoney","truthifi","manual"] };
 
 const ASSET_GROUPS = [
   { key:"eq",    label:"Indian Equities",   color:"#4FA8FF", match: h => !["MF","US_STOCK","EPF","PPF","NPS","BOND","US_401K","ESOP"].includes(h.assetType) && (h.exchange==="NSE"||h.exchange==="BSE"||(!h.assetType&&h.exchange)) },
@@ -39,6 +39,7 @@ const ASSET_GROUPS = [
   { key:"bond",  label:"Bonds",             color:"#6E86FF", match: h => h.assetType==="BOND" },
   { key:"ret",   label:"401k / ESOP (USD)", color:"#FF6E9E", match: h => h.assetType==="US_401K" },
   { key:"esopEur", label:"ESOP (EUR)",      color:"#FF9F5A", match: h => h.assetType==="ESOP" && h.exchange==="EUR" },
+  { key:"fd",    label:"FCNR / FDs",        color:"#31D6C4", match: h => h.assetType==="FD" },
 ];
 function classifyHolding(h) {
   return ASSET_GROUPS.find(g => g.match(h)) || { key:"other", label:"Other", color:"#8492A8" };
@@ -287,9 +288,9 @@ function TruthifiCard({user, st, onConnect, onLoad}){
   );
 }
 
-const EMPTY_MANUAL_FORM = {name:"",valueEur:"",units:"",unitPriceEur:"",investedEur:"",asOf:"",note:""};
+const EMPTY_MANUAL_FORM = {name:"",type:"ESOP",currency:"EUR",value:"",units:"",unitPrice:"",invested:"",bank:"",interestRate:"",openDate:"",maturityDate:"",asOf:"",note:""};
 
-/* ─── Manual assets card (e.g. a foreign ESOP with no MCP server) ─── */
+/* ─── Manual assets card (e.g. a foreign ESOP or FCNR deposit — no MCP server) ─── */
 function ManualAssetsCard({user, st, onRefresh}){
   const [editing, setEditing] = useState(null); // null | "new" | entry id
   const [form, setForm] = useState(EMPTY_MANUAL_FORM);
@@ -297,18 +298,22 @@ function ManualAssetsCard({user, st, onRefresh}){
   const [error, setError] = useState(null);
   const holdings = st?.holdings || [];
   const total = holdings.reduce((s,h)=>s+(h.current||0),0);
+  const rates = st?.rates || {};
+  const currencySym = {EUR:"€",USD:"$"};
 
   function startAdd(){ setForm(EMPTY_MANUAL_FORM); setError(null); setEditing("new"); }
   function startEdit(h){
     setForm({
-      name:h.symbol||"", valueEur:h.eurValue??"", units:h.quantity??"",
-      unitPriceEur: h.eurValue!=null && h.quantity ? (h.unitPrice/(h.eurInr||1)).toFixed(2) : "",
-      investedEur:h.investedEur??"", asOf:h.asOf||"", note:h.note||"",
+      name:h.symbol||"", type:h.assetType||"ESOP", currency:h.currency||"EUR",
+      value:h.nativeValue??"", units:h.quantity??"",
+      unitPrice: h.unitPrice!=null && h.fxRate ? (h.unitPrice/h.fxRate).toFixed(2) : "",
+      invested:h.nativeInvested??"", bank:h.broker||"", interestRate:h.interestRate??"",
+      openDate:h.openDate||"", maturityDate:h.maturityDate||"", asOf:h.asOf||"", note:h.note||"",
     });
     setError(null); setEditing(h.id);
   }
   async function submit(){
-    if(!form.name || !form.valueEur){ setError("Name and value (EUR) are required."); return; }
+    if(!form.name || !form.value){ setError("Name and value are required."); return; }
     setBusy(true); setError(null);
     try{
       const r = editing==="new" ? await api.addManual(user, form) : await api.editManual(user, editing, form);
@@ -325,13 +330,14 @@ function ManualAssetsCard({user, st, onRefresh}){
   }
 
   const inputStyle = {background:C.panelSolid,border:C.border,color:C.text,fontSize:12.5,width:"100%"};
+  const isFD = form.type==="FD";
 
   return (
     <Panel className="p-4" style={{borderColor:"rgba(255,159,90,0.3)"}}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <StatusDot color={holdings.length?C.go:C.muted} glow={holdings.length>0}/>
-          <span className="truncate" style={{color:C.text,fontSize:13.5,fontWeight:600}}>Manual · ESOP (EUR)</span>
+          <span className="truncate" style={{color:C.text,fontSize:13.5,fontWeight:600}}>Manual assets</span>
         </div>
         <button onClick={startAdd} disabled={busy}
           className="rounded-xl px-3 py-1.5 inline-flex items-center gap-1.5 flex-shrink-0"
@@ -340,8 +346,9 @@ function ManualAssetsCard({user, st, onRefresh}){
         </button>
       </div>
       <div className="mt-1.5" style={{color:C.sub,fontSize:11.5}}>
-        {holdings.length ? `${cr(total)} · ${holdings.length} entr${holdings.length!==1?"ies":"y"}` : "No entries yet — add your Amundi balance manually"}
-        {st?.eurInr && <span style={{color:C.muted}}> · 1 EUR = ₹{st.eurInr.toFixed(2)}</span>}
+        {holdings.length ? `${cr(total)} · ${holdings.length} entr${holdings.length!==1?"ies":"y"}` : "No entries yet — add an ESOP or FD balance manually"}
+        {rates.EUR && <span style={{color:C.muted}}> · 1 EUR = ₹{rates.EUR.toFixed(2)}</span>}
+        {rates.USD && <span style={{color:C.muted}}> · 1 USD = ₹{rates.USD.toFixed(2)}</span>}
       </div>
 
       {holdings.length>0 && (
@@ -351,7 +358,7 @@ function ManualAssetsCard({user, st, onRefresh}){
               <div className="min-w-0">
                 <div className="truncate" style={{color:C.text,fontSize:12.5,fontWeight:600}}>{h.symbol}</div>
                 <div className="truncate" style={{color:C.muted,fontSize:10.5}}>
-                  €{h.eurValue?.toFixed(2)} · {cr(h.current)}{h.note?` · ${h.note}`:""}
+                  {currencySym[h.currency]||""}{h.nativeValue?.toFixed(2)} · {cr(h.current)}{h.note?` · ${h.note}`:""}
                 </div>
               </div>
               <div className="flex gap-1.5 flex-shrink-0">
@@ -369,21 +376,47 @@ function ManualAssetsCard({user, st, onRefresh}){
 
       {editing && (
         <div className="mt-3 rounded-xl p-3 space-y-2" style={{background:C.panel2,border:C.border}}>
-          <input placeholder="Fund name (e.g. ESOP Leverage P 2023)" value={form.name}
+          <div className="grid grid-cols-2 gap-2">
+            <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}
+              className="rounded-lg px-2.5 py-1.5" style={inputStyle}>
+              <option value="ESOP">ESOP</option>
+              <option value="FD">Fixed Deposit (e.g. FCNR)</option>
+            </select>
+            <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}
+              className="rounded-lg px-2.5 py-1.5" style={inputStyle}>
+              <option value="EUR">EUR</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+          <input placeholder={isFD?"Name (e.g. FCNR — ICICI Bank #1)":"Fund name (e.g. ESOP Leverage P 2023)"} value={form.name}
             onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
           <div className="grid grid-cols-2 gap-2">
-            <input placeholder="Value (EUR)" type="number" value={form.valueEur}
-              onChange={e=>setForm({...form,valueEur:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
-            <input placeholder="Units" type="number" value={form.units}
-              onChange={e=>setForm({...form,units:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
-            <input placeholder="Unit price (EUR)" type="number" value={form.unitPriceEur}
-              onChange={e=>setForm({...form,unitPriceEur:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
-            <input placeholder="Invested (EUR, optional)" type="number" value={form.investedEur}
-              onChange={e=>setForm({...form,investedEur:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder={`Value (${form.currency})`} type="number" value={form.value}
+              onChange={e=>setForm({...form,value:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder={`Invested (${form.currency}, optional)`} type="number" value={form.invested}
+              onChange={e=>setForm({...form,invested:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            {!isFD && <>
+              <input placeholder="Units" type="number" value={form.units}
+                onChange={e=>setForm({...form,units:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+              <input placeholder={`Unit price (${form.currency})`} type="number" value={form.unitPrice}
+                onChange={e=>setForm({...form,unitPrice:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            </>}
           </div>
+          {isFD && <>
+            <input placeholder="Bank (e.g. Karur Vysya Bank)" value={form.bank}
+              onChange={e=>setForm({...form,bank:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <div className="grid grid-cols-3 gap-2">
+              <input placeholder="Interest % p.a." type="number" value={form.interestRate}
+                onChange={e=>setForm({...form,interestRate:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+              <input placeholder="Opened (YYYY-MM-DD)" value={form.openDate}
+                onChange={e=>setForm({...form,openDate:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+              <input placeholder="Matures (YYYY-MM-DD)" value={form.maturityDate}
+                onChange={e=>setForm({...form,maturityDate:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            </div>
+          </>}
           <input placeholder="As-of date (optional, e.g. 2026-06-14)" value={form.asOf}
             onChange={e=>setForm({...form,asOf:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
-          <input placeholder="Note (optional, e.g. available Dec 2028)" value={form.note}
+          <input placeholder="Note (optional)" value={form.note}
             onChange={e=>setForm({...form,note:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
           {error && <div style={{color:C.neg,fontSize:11.5}}>{error}</div>}
           <div className="flex gap-2 justify-end pt-1">
@@ -1603,7 +1636,7 @@ function App(){
     for(const [uid, uData] of Object.entries(s.users||{})){
       if(!next[uid]) next[uid]={brokers:{}};
       for(const [broker, info] of Object.entries(uData.brokers||{})){
-        next[uid].brokers[broker]={connected:info.connected,authed:info.authed,tools:info.tools,loginUrl:info.loginUrl,usdInr:info.usdInr||null,eurInr:info.eurInr||null};
+        next[uid].brokers[broker]={connected:info.connected,authed:info.authed,tools:info.tools,loginUrl:info.loginUrl,usdInr:info.usdInr||null,rates:info.rates||null};
         if(info.cachedHoldings?.length){
           next[uid].brokers[broker].holdings=info.cachedHoldings;
           next[uid].brokers[broker].fromCache=true;
