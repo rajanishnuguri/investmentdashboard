@@ -191,7 +191,7 @@ function toManualHolding(e, rates) {
     symbol: e.name,
     exchange: e.currency,
     assetType: e.type,
-    broker: e.type === "FD" ? (e.bank || "") : "Amundi",
+    broker: e.bank || (e.type === "ESOP" ? "Amundi" : ""),
     investmentCode: e.id,
     unitPrice: e.unitPrice != null ? e.unitPrice * rate : null,
     quantity: e.units != null ? e.units : null,

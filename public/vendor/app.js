@@ -77,7 +77,7 @@ const ASSET_GROUPS = [{
   key: "ret",
   label: "401k / ESOP (USD)",
   color: "#FF6E9E",
-  match: h => h.assetType === "US_401K"
+  match: h => h.assetType === "US_401K" || h.assetType === "ESOP" && h.exchange === "USD"
 }, {
   key: "esopEur",
   label: "ESOP (EUR)",

@@ -37,7 +37,7 @@ const ASSET_GROUPS = [
   { key:"us",    label:"US Stocks & ETFs",  color:"#B497FF", match: h => h.assetType==="US_STOCK" },
   { key:"fixed", label:"EPF / PPF / NPS",   color:"#FFC24E", match: h => ["EPF","PPF","NPS"].includes(h.assetType) },
   { key:"bond",  label:"Bonds",             color:"#6E86FF", match: h => h.assetType==="BOND" },
-  { key:"ret",   label:"401k / ESOP (USD)", color:"#FF6E9E", match: h => h.assetType==="US_401K" },
+  { key:"ret",   label:"401k / ESOP (USD)", color:"#FF6E9E", match: h => h.assetType==="US_401K" || (h.assetType==="ESOP" && h.exchange==="USD") },
   { key:"esopEur", label:"ESOP (EUR)",      color:"#FF9F5A", match: h => h.assetType==="ESOP" && h.exchange==="EUR" },
   { key:"fd",    label:"FCNR / FDs",        color:"#31D6C4", match: h => h.assetType==="FD" },
 ];
