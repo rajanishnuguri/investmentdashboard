@@ -206,6 +206,8 @@ const api = {
   editGoal: (u,id,body)=>fetch(`/api/${u}/goals/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},
     body:JSON.stringify(body)}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
   deleteGoal: (u,id)=>fetch(`/api/${u}/goals/${id}`,{method:"DELETE"}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
+  editFamilyGoal: (id,body)=>fetch(`/api/family-goals/${id}`,{method:"PUT",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body)}).then(r=>r.json().then(j=>({ok:r.ok,...j}))),
   benchmarks: ()=>fetch("/api/benchmarks").then(r=>r.json()),
 };
 
@@ -1461,7 +1463,126 @@ function DataRoom({user, brokers, onCall}){
 }
 
 /* ─── Family Dashboard ─── */
-function FamilyDashboard({usersState}){
+/* ─── Family goal — one target spanning both profiles. "Current" is the live
+   combined value of an asset group (e.g. mutual funds), not a typed-in number. ─── */
+function FamilyGoalCard({goal, perUser, onRefresh}){
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  // A goal can be scoped to one profile (goal.user) and can track either an
+  // asset group (goal.track) or one exact asset type (goal.assetType, e.g. US_401K).
+  const matches = h => goal.assetType ? h.assetType===goal.assetType : classifyHolding(h).key===goal.track;
+  const shares = perUser.filter(u=>!goal.user || u.uid===goal.user).map(u=>({
+    uid:u.uid, name:u.name,
+    value:u.holdings.filter(matches).reduce((s,h)=>s+(h.current||0),0),
+  }));
+  const current = shares.reduce((s,x)=>s+x.value,0);
+  const groupLabel = goal.trackLabel || (ASSET_GROUPS.find(g=>g.key===goal.track)||{}).label || "assets";
+  const todayLabel = goal.user ? `${groupLabel} today` : `Combined ${groupLabel.toLowerCase()} today`;
+
+  const p = goalProjection({...goal, currentAmount:current});
+  const r = (goal.expectedReturn||0)/100/12;
+  const growth = Math.pow(1+r, p.months);
+  // Monthly amount that closes the gap from today's value, with contributions at each month-end.
+  const needed = p.months<=0 ? Math.max(0, goal.targetAmount-current)
+    : r===0 ? Math.max(0,(goal.targetAmount-current)/p.months)
+    : Math.max(0,(goal.targetAmount-current*growth)*r/(growth-1));
+  const hasContribution = (goal.monthlyContribution||0)>0;
+
+  function startEdit(){
+    setForm({targetAmount:goal.targetAmount, targetDate:goal.targetDate,
+      monthlyContribution:goal.monthlyContribution||"", expectedReturn:goal.expectedReturn??10});
+    setError(null); setEditing(true);
+  }
+  async function save(){
+    setBusy(true); setError(null);
+    try{
+      const res = await api.editFamilyGoal(goal.id, form);
+      if(!res.ok) throw new Error(res.error||"save failed");
+      setEditing(false);
+      await onRefresh();
+    }catch(e){ setError(String(e.message||e)); }
+    finally{ setBusy(false); }
+  }
+  const inputStyle = {background:C.panelSolid,border:C.border,color:C.text,fontSize:12.5,width:"100%"};
+
+  return (
+    <Panel className="p-5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Icon name="heart" size={14} color={C.go}/>
+            <span className="truncate" style={{color:C.text,fontSize:14.5,fontWeight:700}}>{goal.name}</span>
+          </div>
+          <div style={{color:C.muted,fontSize:11.5,marginTop:2}}>
+            Target {cr(goal.targetAmount)} by {new Date(goal.targetDate).toLocaleDateString("en-IN",{month:"short",year:"numeric"})}
+            {p.yearsAway>0 && ` · ${p.yearsAway.toFixed(1)}y away`}
+          </div>
+        </div>
+        <button onClick={startEdit} disabled={busy} className="rounded-lg p-1.5 flex-shrink-0" style={{background:C.panel2,border:C.border}}>
+          <Icon name="refresh" size={12} color={C.sub}/>
+        </button>
+      </div>
+
+      <div className="mt-3">
+        <div className="flex items-center justify-between mb-1" style={{fontSize:12}}>
+          <span style={{color:C.muted}}>{todayLabel}</span>
+          <span className="font-mono" style={{color:C.text,fontWeight:600}}>{cr(current)} · {p.progressPct.toFixed(0)}%</span>
+        </div>
+        <div style={{height:6,borderRadius:99,background:"rgba(255,255,255,0.07)",overflow:"hidden"}}>
+          <div style={{height:"100%",width:`${p.progressPct}%`,background:C.go,borderRadius:99,transition:"width 0.8s ease"}}/>
+        </div>
+        {shares.length>1 && <div className="mt-1.5 flex gap-3 flex-wrap" style={{fontSize:11,color:C.muted}}>
+          {shares.map(x=>(
+            <span key={x.uid}><span style={{color:C[x.uid]||C.go}}>●</span> {x.name} <span className="font-mono" style={{color:C.sub}}>{cr(x.value)}</span></span>
+          ))}
+        </div>}
+      </div>
+
+      <div className="mt-3 rounded-xl px-3 py-2.5 space-y-1" style={{background:C.panel2}}>
+        <div style={{color:C.text,fontSize:12}}>
+          Needs about <span className="font-mono" style={{fontWeight:700}}>{cr(needed)}</span>/mo of new investing at {goal.expectedReturn}% to reach the target.
+        </div>
+        {hasContribution && (
+          <div style={{color:p.onTrack?C.go:C.neg,fontSize:12}}>
+            {p.onTrack
+              ? `At ${cr(goal.monthlyContribution)}/mo you're on track — projected ${cr(p.projectedValue)}.`
+              : `At ${cr(goal.monthlyContribution)}/mo you'd reach ~${cr(p.projectedValue)}, short by ${cr(p.shortfall)}.`}
+          </div>
+        )}
+        {!hasContribution && (
+          <div style={{color:C.muted,fontSize:11.5}}>With no new money, today's holdings alone grow to ~{cr(p.projectedValue)}. Set your {goal.user?"monthly":"combined monthly"} amount (pencil icon) to see if you're on track.</div>
+        )}
+      </div>
+
+      {editing && (
+        <div className="mt-3 rounded-xl p-3 space-y-2" style={{background:C.panel2,border:C.border}}>
+          <div className="grid grid-cols-2 gap-2">
+            <input placeholder="Target amount (₹)" type="number" value={form.targetAmount}
+              onChange={e=>setForm({...form,targetAmount:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder="Target date" type="date" value={form.targetDate}
+              onChange={e=>setForm({...form,targetDate:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder={goal.user?"Monthly investing (₹)":"Combined monthly investing (₹)"} type="number" value={form.monthlyContribution}
+              onChange={e=>setForm({...form,monthlyContribution:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+            <input placeholder="Expected return % p.a." type="number" value={form.expectedReturn}
+              onChange={e=>setForm({...form,expectedReturn:e.target.value})} className="rounded-lg px-2.5 py-1.5" style={inputStyle}/>
+          </div>
+          {error && <div style={{color:C.neg,fontSize:11.5}}>{error}</div>}
+          <div className="flex gap-2 justify-end">
+            <button onClick={()=>setEditing(false)} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.panelSolid,color:C.sub,fontSize:12,fontWeight:600,border:C.border}}>Cancel</button>
+            <button onClick={save} disabled={busy} className="rounded-lg px-3 py-1.5"
+              style={{background:C.go,color:C.btnText,fontSize:12,fontWeight:700}}>{busy?"Saving…":"Save"}</button>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function FamilyDashboard({usersState, familyGoals, onRefresh}){
   const [tab, setTab] = useState("overview");
 
   const perUser = useMemo(()=>{
@@ -1531,6 +1652,9 @@ function FamilyDashboard({usersState}){
         ))}
       </nav>
 
+      {tab==="overview" && (familyGoals||[]).map(g=>(
+        <FamilyGoalCard key={g.id} goal={g} perUser={perUser} onRefresh={onRefresh}/>
+      ))}
       {tab==="overview" && <Overview total={familyTotal} netWorth={familyTotal.netWorth} liabilitiesTotal={familyTotal.liabilitiesTotal} allHoldings={allHoldings} a={{currentAge:0}} proj={{rows:[],fiYear:null,todayFI:0}} go={null}/>}
       {tab==="holdings" && <Holdings allHoldings={allHoldings} refreshedAt={null}/>}
       {tab==="allocation" && <Allocation allHoldings={allHoldings}/>}
@@ -1543,7 +1667,7 @@ const USER_NAV = [["overview","Overview","layout"],["holdings","Holdings","walle
   ["allocation","Allocation","pie"],["health","Health","trend"],["goals","Goals","heart"],
   ["trajectory","Trajectory","rocket"],["data","Data","db"]];
 
-function UserDashboard({uid, uLabel, userData, onConnect, onLoad, onCall, onRefresh}){
+function UserDashboard({uid, uLabel, userData, trackedGoals, onConnect, onLoad, onCall, onRefresh}){
   const brokers = userData?.brokers;
   const liabilities = userData?.liabilities || [];
   const liabilitiesTotal = userData?.liabilitiesTotal || 0;
@@ -1605,7 +1729,14 @@ function UserDashboard({uid, uLabel, userData, onConnect, onLoad, onCall, onRefr
       {tab==="allocation"  && <Allocation allHoldings={allHoldings}/>}
       {tab==="health"      && <Health allHoldings={allHoldings} total={total} netWorth={netWorth} liabilitiesTotal={liabilitiesTotal}
         annualExpensesToday={a.annualExpensesToday} proj={proj} targetAllocation={targetAllocation} user={uid} onRefresh={onRefresh}/>}
-      {tab==="goals"       && <Goals user={uid} goals={goals} onRefresh={onRefresh}/>}
+      {tab==="goals"       && (
+        <div className="space-y-4">
+          {(trackedGoals||[]).filter(g=>g.user===uid).map(g=>(
+            <FamilyGoalCard key={g.id} goal={g} perUser={[{uid, name:uLabel, holdings:allHoldings}]} onRefresh={onRefresh}/>
+          ))}
+          <Goals user={uid} goals={goals} onRefresh={onRefresh}/>
+        </div>
+      )}
       {tab==="trajectory"  && <Trajectory a={a} setA={setA} proj={proj}/>}
       {tab==="data"        && <DataRoom user={uid} brokers={brokers||{}} onCall={onCall}/>}
     </div>
@@ -1616,6 +1747,7 @@ function UserDashboard({uid, uLabel, userData, onConnect, onLoad, onCall, onRefr
 function App(){
   const [userTab, setUserTab] = useState("rajanish");
   const [users, setUsers] = useState({ rajanish:{brokers:{}}, aswini:{brokers:{}} });
+  const [familyGoals, setFamilyGoals] = useState([]);
 
   function patchBroker(user, broker, v){
     setUsers(prev=>({
@@ -1652,6 +1784,7 @@ function App(){
       next[uid].history = uData.history || [];
     }
     setUsers(next);
+    setFamilyGoals(s.familyGoals || []);
   }
 
   useEffect(()=>{ refreshStatus().catch(()=>{}); },[]);
@@ -1773,17 +1906,17 @@ function App(){
 
         {/* Main content */}
         {userTab==="rajanish" && (
-          <UserDashboard uid="rajanish" uLabel="Rajanish" userData={users.rajanish}
+          <UserDashboard uid="rajanish" uLabel="Rajanish" userData={users.rajanish} trackedGoals={familyGoals}
             onConnect={connect} onLoad={load} onRefresh={refreshStatus}
             onCall={(u,b,n)=>api.callTool(u,b,n)}/>
         )}
         {userTab==="aswini" && (
-          <UserDashboard uid="aswini" uLabel="Aswini" userData={users.aswini}
+          <UserDashboard uid="aswini" uLabel="Aswini" userData={users.aswini} trackedGoals={familyGoals}
             onConnect={connect} onLoad={load} onRefresh={refreshStatus}
             onCall={(u,b,n)=>api.callTool(u,b,n)}/>
         )}
         {userTab==="family" && (
-          <FamilyDashboard usersState={users}/>
+          <FamilyDashboard usersState={users} familyGoals={familyGoals} onRefresh={refreshStatus}/>
         )}
 
         <footer className="mt-8 pt-4" style={{borderTop:C.border,color:C.muted,fontSize:11}}>

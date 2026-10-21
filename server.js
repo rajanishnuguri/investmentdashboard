@@ -140,6 +140,19 @@ function saveTargetAllocation(user, targets) {
   saveToDrive(cache).catch(() => {});
 }
 
+// Family-level goals span both profiles. `track` names the asset group whose live
+// combined value is the goal's "current" amount (computed in the browser from the
+// same classifier the allocation views use), so no amount is stored here.
+function loadFamilyGoals() {
+  return loadCache().familyGoals?.entries || [];
+}
+function saveFamilyGoals(entries) {
+  const cache = loadCache();
+  cache.familyGoals = { entries, savedAt: new Date().toISOString() };
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2));
+  saveToDrive(cache).catch(() => {});
+}
+
 function loadGoals(user) {
   const cache = loadCache();
   return cache[user]?.goals?.entries || [];
@@ -313,7 +326,25 @@ app.get("/api/status", wrap(async (_req, res) => {
     out[user].history = cache.history?.[user] || [];
     if (assetsTotal > 0) upsertHistorySnapshot(user, assetsTotal, investedTotal);
   }
-  res.json({ users: out });
+  res.json({ users: out, familyGoals: loadFamilyGoals() });
+}));
+
+app.put("/api/family-goals/:id", wrap(async (req, res) => {
+  const { id } = req.params;
+  const entries = loadFamilyGoals();
+  const idx = entries.findIndex((e) => e.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Goal not found" });
+  const { name, targetAmount, targetDate, monthlyContribution, expectedReturn } = req.body || {};
+  entries[idx] = {
+    ...entries[idx],
+    ...(name != null && name !== "" && { name: String(name) }),
+    ...(targetAmount != null && targetAmount !== "" && { targetAmount: Number(targetAmount) }),
+    ...(targetDate != null && targetDate !== "" && { targetDate: String(targetDate) }),
+    ...(monthlyContribution != null && { monthlyContribution: monthlyContribution === "" ? 0 : Number(monthlyContribution) }),
+    ...(expectedReturn != null && expectedReturn !== "" && { expectedReturn: Number(expectedReturn) }),
+  };
+  saveFamilyGoals(entries);
+  res.json({ ok: true, entry: entries[idx] });
 }));
 
 async function manualRates() {
